@@ -405,7 +405,7 @@ export async function getConfig(): Promise<Config> {
 export async function updateApifyToken(token: string): Promise<void> {
   await apiCall('/config/apify-token', {
     method: 'POST',
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ apify_token: token }),
   })
 }
 
