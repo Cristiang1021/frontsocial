@@ -1,4 +1,4 @@
-import type { Platform, Post, Comment, MetricPoint, PlatformMetrics, KPIData, Source, LinkType, SourceStatus, Account } from '@/types'
+import type { Platform, Post, Comment, MetricPoint, PlatformMetrics, KPIData, Source, LinkType, SourceStatus } from '@/types'
 
 // Helper to generate dates
 const getDateRange = (days: number): string[] => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { KPICard } from '@/components/kpi-card'
@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { isAuthenticated } from '@/lib/auth'
 
-export default function ViewPage() {
+function ViewPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [isAuth, setIsAuth] = useState<boolean | null>(null)
@@ -427,5 +427,19 @@ export default function ViewPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function ViewPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground">Cargando...</p>
+        </div>
+      </div>
+    }>
+      <ViewPageContent />
+    </Suspense>
   )
 }
