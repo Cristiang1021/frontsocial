@@ -420,6 +420,7 @@ export async function getConfig(): Promise<Config> {
 }
 
 export async function updateApifyToken(token: string): Promise<void> {
+  // El backend espera el token en el body con el formato { apify_token: token }
   await apiCall('/config/apify-token', {
     method: 'POST',
     body: JSON.stringify({ apify_token: token }),
