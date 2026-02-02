@@ -14,9 +14,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import { Link2, ExternalLink, Key, Brain, Hash, Settings as SettingsIcon, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
-import { getConfig, updateApifyToken, getApifyUsage } from '@/lib/api'
+import { getConfig, updateApifyToken, getApifyUsage, updateDateFrom, updateDateTo, updateLastDays } from '@/lib/api'
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<any>(null)
@@ -24,6 +25,10 @@ export default function SettingsPage() {
   const [apifyToken, setApifyToken] = useState('')
   const [apifyUsage, setApifyUsage] = useState<any>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [lastDays, setLastDays] = useState<number>(7)
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
+  const [useLastDays, setUseLastDays] = useState<boolean>(true) // true = usar últimos N días, false = usar fechas específicas
 
   useEffect(() => {
     async function loadConfig() {
@@ -36,6 +41,17 @@ export default function SettingsPage() {
         setConfig(configData)
         setApifyToken(configData.apify_token || '')
         setApifyUsage(usageData)
+        // Set date filter values (use new names, fallback to old names for compatibility)
+        const lastDaysValue = configData.last_days ?? configData.tiktok_last_days ?? 7
+        const dateFromValue = configData.date_from ?? configData.tiktok_date_from ?? ''
+        const dateToValue = configData.date_to ?? configData.tiktok_date_to ?? ''
+        
+        setLastDays(lastDaysValue)
+        setDateFrom(dateFromValue)
+        setDateTo(dateToValue)
+        
+        // Determine which mode is active: if last_days > 0, use "last days" mode, otherwise use "specific dates" mode
+        setUseLastDays(lastDaysValue > 0 && !dateFromValue && !dateToValue)
       } catch (error) {
         console.error('Error loading config:', error)
         setMessage({ type: 'error', text: 'Error al cargar la configuración' })
@@ -57,6 +73,56 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error updating token:', error)
       setMessage({ type: 'error', text: 'Error al actualizar el token' })
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
+
+  const handleSaveLastDays = async () => {
+    try {
+      // Al guardar "últimos N días", limpiar las fechas específicas
+      await Promise.all([
+        updateLastDays(lastDays),
+        updateDateFrom(null),
+        updateDateTo(null)
+      ])
+      setMessage({ type: 'success', text: 'Filtro de últimos N días guardado correctamente' })
+      // Reload config
+      const configData = await getConfig()
+      setConfig(configData)
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error) {
+      console.error('Error updating last days:', error)
+      setMessage({ type: 'error', text: 'Error al actualizar filtro' })
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
+
+  const handleSaveDateFrom = async () => {
+    try {
+      await updateDateFrom(dateFrom || null)
+      setMessage({ type: 'success', text: 'Fecha desde actualizada correctamente' })
+      // Reload config
+      const configData = await getConfig()
+      setConfig(configData)
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error) {
+      console.error('Error updating date from:', error)
+      setMessage({ type: 'error', text: 'Error al actualizar fecha desde' })
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
+
+  const handleSaveDateTo = async () => {
+    try {
+      await updateDateTo(dateTo || null)
+      setMessage({ type: 'success', text: 'Fecha hasta actualizada correctamente' })
+      // Reload config
+      const configData = await getConfig()
+      setConfig(configData)
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error) {
+      console.error('Error updating date to:', error)
+      setMessage({ type: 'error', text: 'Error al actualizar fecha hasta' })
       setTimeout(() => setMessage(null), 3000)
     }
   }
@@ -342,38 +408,117 @@ export default function SettingsPage() {
                 Configura los filtros de fecha para el análisis
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               {config && (
                 <>
-                  <div className="space-y-2">
-                    <Label>Últimos N Días</Label>
-                    <Input
-                      type="number"
-                      value={config.tiktok_last_days || 7}
-                      readOnly
-                      className="bg-muted"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Analizar contenido de los últimos N días (0 = sin filtro)
+                  {/* Mode Selector */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-base font-medium">Modo de Filtrado</Label>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Elige cómo quieres filtrar las publicaciones
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm ${!useLastDays ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                          Fechas Específicas
+                        </span>
+                        <Switch
+                          checked={useLastDays}
+                          onCheckedChange={(checked) => {
+                            setUseLastDays(checked)
+                            // Al cambiar de modo, limpiar el otro
+                            if (checked) {
+                              setDateFrom('')
+                              setDateTo('')
+                            } else {
+                              setLastDays(0)
+                            }
+                          }}
+                        />
+                        <span className={`text-sm ${useLastDays ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
+                          Últimos N Días
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Last N Days Mode */}
+                  {useLastDays ? (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="last-days">Últimos N Días</Label>
+                        <Input
+                          id="last-days"
+                          type="number"
+                          min="0"
+                          value={lastDays}
+                          onChange={(e) => setLastDays(parseInt(e.target.value) || 0)}
+                          placeholder="Ej: 7"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Analizar contenido de los últimos N días para <strong>TODAS las plataformas</strong> (Facebook, Instagram, TikTok).
+                          <br />
+                          <strong>0 = sin filtro</strong> (analizar todo el historial disponible)
+                        </p>
+                      </div>
+                      <Button onClick={handleSaveLastDays} className="w-full">
+                        Guardar Configuración
+                      </Button>
+                    </div>
+                  ) : (
+                    /* Specific Dates Mode */
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="date-from">Fecha Desde</Label>
+                        <Input
+                          id="date-from"
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => setDateFrom(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Filtrar publicaciones desde esta fecha (dejar vacío = sin límite inferior)
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="date-to">Fecha Hasta</Label>
+                        <Input
+                          id="date-to"
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => setDateTo(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Filtrar publicaciones hasta esta fecha (dejar vacío = sin límite superior)
+                        </p>
+                      </div>
+                      <Button 
+                        onClick={async () => {
+                          await handleSaveDateFrom()
+                          await handleSaveDateTo()
+                        }} 
+                        className="w-full"
+                      >
+                        Guardar Configuración
+                      </Button>
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  {/* Info Box */}
+                  <div className="p-4 bg-muted/50 rounded-lg border border-border">
+                    <p className="text-sm text-muted-foreground">
+                      <strong className="text-foreground">ℹ️ Información:</strong>
+                      <br />
+                      Estos filtros se aplican a <strong>TODAS las plataformas</strong> (Facebook, Instagram, TikTok).
+                      <br />
+                      Úsalos para optimizar recursos y evitar análisis repetidos de contenido antiguo.
                     </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Fecha Desde</Label>
-                    <Input
-                      type="date"
-                      value={config.tiktok_date_from || ''}
-                      readOnly
-                      className="bg-muted"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Fecha Hasta</Label>
-                    <Input
-                      type="date"
-                      value={config.tiktok_date_to || ''}
-                      readOnly
-                      className="bg-muted"
-                    />
                   </div>
                 </>
               )}

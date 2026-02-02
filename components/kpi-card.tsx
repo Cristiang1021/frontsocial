@@ -58,7 +58,7 @@ export function KPICard({ data, className }: KPICardProps) {
     <Card className={cn('bg-card border-border', className)}>
       <CardContent className="p-5">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
           {tooltipText && (
             <TooltipProvider>
               <Tooltip>

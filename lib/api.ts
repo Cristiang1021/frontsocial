@@ -3,7 +3,26 @@
  * Replaces mock data with real API calls
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+// Get base URL - use production URL by default, fallback to localhost for development
+const getBaseUrl = (): string => {
+  // Production backend URL
+  const PRODUCTION_URL = 'https://backsocial-83zt.onrender.com/api'
+  // Local development URL
+  const LOCAL_URL = 'http://localhost:8000/api'
+  
+  // Check if we're in development (localhost or 127.0.0.1)
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname === '0.0.0.0'
+    return isLocalhost ? LOCAL_URL : PRODUCTION_URL
+  }
+  
+  // Server-side: use production by default
+  return PRODUCTION_URL
+}
+
+const API_BASE_URL = getBaseUrl()
 
 interface ApiResponse<T> {
   data?: T
@@ -20,7 +39,9 @@ async function apiCall<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`
+  // Ensure endpoint starts with /
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+  const url = `${API_BASE_URL}${normalizedEndpoint}`
   
   try {
     const response = await fetch(url, {
@@ -367,9 +388,14 @@ export interface Config {
   default_limit_posts: number
   default_limit_comments: number
   auto_skip_recent: boolean
+  // New global date filters (for all platforms)
+  date_from?: string
+  date_to?: string
+  last_days: number
+  // Legacy TikTok-specific filters (for backward compatibility)
   tiktok_date_from?: string
   tiktok_date_to?: string
-  tiktok_last_days: number
+  tiktok_last_days?: number
 }
 
 export async function getConfig(): Promise<Config> {
@@ -380,6 +406,27 @@ export async function updateApifyToken(token: string): Promise<void> {
   await apiCall('/config/apify-token', {
     method: 'POST',
     body: JSON.stringify({ token }),
+  })
+}
+
+export async function updateDateFrom(dateFrom: string | null): Promise<void> {
+  await apiCall('/config/date-from', {
+    method: 'POST',
+    body: JSON.stringify({ date_from: dateFrom }),
+  })
+}
+
+export async function updateDateTo(dateTo: string | null): Promise<void> {
+  await apiCall('/config/date-to', {
+    method: 'POST',
+    body: JSON.stringify({ date_to: dateTo }),
+  })
+}
+
+export async function updateLastDays(lastDays: number): Promise<void> {
+  await apiCall('/config/last-days', {
+    method: 'POST',
+    body: JSON.stringify({ last_days: lastDays }),
   })
 }
 
