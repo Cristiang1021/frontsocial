@@ -1,0 +1,417 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
+import { Link2, ExternalLink, Key, Brain, Hash, Settings as SettingsIcon, BarChart3 } from 'lucide-react'
+import Link from 'next/link'
+import { getConfig, updateApifyToken, getApifyUsage } from '@/lib/api'
+
+export default function SettingsPage() {
+  const [config, setConfig] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [apifyToken, setApifyToken] = useState('')
+  const [apifyUsage, setApifyUsage] = useState<any>(null)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    async function loadConfig() {
+      try {
+        setLoading(true)
+        const [configData, usageData] = await Promise.all([
+          getConfig(),
+          getApifyUsage().catch(() => null)
+        ])
+        setConfig(configData)
+        setApifyToken(configData.apify_token || '')
+        setApifyUsage(usageData)
+      } catch (error) {
+        console.error('Error loading config:', error)
+        setMessage({ type: 'error', text: 'Error al cargar la configuración' })
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadConfig()
+  }, [])
+
+  const handleSaveApifyToken = async () => {
+    try {
+      await updateApifyToken(apifyToken)
+      setMessage({ type: 'success', text: 'Token de Apify actualizado correctamente' })
+      // Reload usage info
+      const usage = await getApifyUsage().catch(() => null)
+      setApifyUsage(usage)
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error) {
+      console.error('Error updating token:', error)
+      setMessage({ type: 'error', text: 'Error al actualizar el token' })
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <div className="h-8 w-32 animate-pulse rounded bg-muted" />
+          <div className="mt-2 h-4 w-64 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="bg-card border-border">
+              <CardContent className="p-6">
+                <div className="h-4 w-24 animate-pulse rounded bg-muted mb-4" />
+                <div className="h-10 w-full animate-pulse rounded bg-muted" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-foreground">Configuración</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Administra las preferencias del dashboard y la configuración del sistema
+        </p>
+      </div>
+
+      {/* Message */}
+      {message && (
+        <div
+          className={`rounded-lg border p-4 ${
+            message.type === 'success'
+              ? 'bg-success/20 border-success/30 text-success'
+              : 'bg-destructive/20 border-destructive/30 text-destructive'
+          }`}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <Tabs defaultValue="api" className="space-y-6">
+        <TabsList className="bg-secondary">
+          <TabsTrigger value="api">🔑 API & Tokens</TabsTrigger>
+          <TabsTrigger value="analysis">🤖 Análisis</TabsTrigger>
+          <TabsTrigger value="limits">📊 Límites</TabsTrigger>
+          <TabsTrigger value="filters">📅 Filtros</TabsTrigger>
+        </TabsList>
+
+        {/* API & Tokens Tab */}
+        <TabsContent value="api" className="space-y-6">
+          {/* Apify Token */}
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                Token de Apify
+              </CardTitle>
+              <CardDescription>
+                Token de API de Apify para realizar el scraping de redes sociales
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="apify-token">Token de API</Label>
+                <Input
+                  id="apify-token"
+                  type="password"
+                  value={apifyToken}
+                  onChange={(e) => setApifyToken(e.target.value)}
+                  placeholder="Ingresa tu token de Apify"
+                  className="bg-input"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Obtén tu token en{' '}
+                  <a
+                    href="https://console.apify.com/account/integrations"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    Apify Console
+                  </a>
+                </p>
+              </div>
+              <Button onClick={handleSaveApifyToken}>Guardar Token</Button>
+            </CardContent>
+          </Card>
+
+          {/* Apify Usage Info */}
+          {apifyUsage && (
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-base font-medium text-card-foreground flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Información de Uso de Apify
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Usuario:</span>
+                  <span className="text-sm font-medium">{apifyUsage.username || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Plan:</span>
+                  <span className="text-sm font-medium">{apifyUsage.plan || 'N/A'}</span>
+                </div>
+                <div className="pt-2">
+                  <a
+                    href="https://console.apify.com/account/usage"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-primary hover:underline flex items-center gap-1"
+                  >
+                    Ver uso detallado en Apify Console
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Actor IDs */}
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground">
+                IDs de Actores de Apify
+              </CardTitle>
+              <CardDescription>
+                Configura los IDs de los actores de Apify para cada plataforma
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Instagram Posts</Label>
+                    <Input
+                      value={config.actor_instagram_posts || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>TikTok Posts</Label>
+                    <Input
+                      value={config.actor_tiktok_posts || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Facebook Posts</Label>
+                    <Input
+                      value={config.actor_facebook_posts || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Los IDs de actores se configuran desde el backend. Contacta al administrador para cambiarlos.
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Analysis Tab */}
+        <TabsContent value="analysis" className="space-y-6">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground flex items-center gap-2">
+                <Brain className="h-5 w-5" />
+                Modelo de Análisis de Sentimiento
+              </CardTitle>
+              <CardDescription>
+                Configura el modelo de HuggingFace para análisis de sentimiento
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config && (
+                <div className="space-y-2">
+                  <Label>Modelo de HuggingFace</Label>
+                  <Input
+                    value={config.huggingface_model || ''}
+                    readOnly
+                    className="bg-muted"
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground flex items-center gap-2">
+                <Hash className="h-5 w-5" />
+                Palabras Clave
+              </CardTitle>
+              <CardDescription>
+                Palabras clave para análisis de sentimiento
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Palabras Positivas</Label>
+                    <Input
+                      value={Array.isArray(config.keywords_positive) ? config.keywords_positive.join(', ') : config.keywords_positive || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Palabras Negativas</Label>
+                    <Input
+                      value={Array.isArray(config.keywords_negative) ? config.keywords_negative.join(', ') : config.keywords_negative || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Limits Tab */}
+        <TabsContent value="limits" className="space-y-6">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground">
+                Límites por Defecto
+              </CardTitle>
+              <CardDescription>
+                Configura los límites por defecto para scraping
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Límite de Publicaciones</Label>
+                    <Input
+                      type="number"
+                      value={config.default_limit_posts || 50}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Límite de Comentarios</Label>
+                    <Input
+                      type="number"
+                      value={config.default_limit_comments || 200}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Filters Tab */}
+        <TabsContent value="filters" className="space-y-6">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground">
+                Filtros de Fecha
+              </CardTitle>
+              <CardDescription>
+                Configura los filtros de fecha para el análisis
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {config && (
+                <>
+                  <div className="space-y-2">
+                    <Label>Últimos N Días</Label>
+                    <Input
+                      type="number"
+                      value={config.tiktok_last_days || 7}
+                      readOnly
+                      className="bg-muted"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Analizar contenido de los últimos N días (0 = sin filtro)
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Fecha Desde</Label>
+                    <Input
+                      type="date"
+                      value={config.tiktok_date_from || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Fecha Hasta</Label>
+                    <Input
+                      type="date"
+                      value={config.tiktok_date_to || ''}
+                      readOnly
+                      className="bg-muted"
+                    />
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Data Sources Link */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="text-base font-medium text-card-foreground flex items-center gap-2">
+            <Link2 className="h-5 w-5" />
+            Fuentes de Datos
+          </CardTitle>
+          <CardDescription>
+            Administra los enlaces y URLs que se están rastreando para análisis
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center gap-4 py-6">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+              <Link2 className="h-6 w-6 text-primary" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">
+                Agrega, edita y administra los enlaces de redes sociales que quieres rastrear y analizar.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href="/sources">
+                Administrar Fuentes
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
