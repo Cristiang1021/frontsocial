@@ -56,7 +56,24 @@ async function apiCall<T>(
       let errorMessage = `HTTP error! status: ${response.status}`
       try {
         const error = await response.json()
-        errorMessage = error.detail || error.message || errorMessage
+        // Manejar diferentes formatos de error del backend
+        if (error.detail) {
+          // FastAPI devuelve errores de validación en error.detail
+          if (Array.isArray(error.detail)) {
+            // Si es un array, extraer los mensajes de validación
+            errorMessage = error.detail.map((e: any) => 
+              `${e.loc?.join('.') || ''}: ${e.msg || e.message || JSON.stringify(e)}`
+            ).join(', ')
+          } else if (typeof error.detail === 'string') {
+            errorMessage = error.detail
+          } else {
+            errorMessage = JSON.stringify(error.detail)
+          }
+        } else if (error.message) {
+          errorMessage = error.message
+        } else if (error.error) {
+          errorMessage = error.error
+        }
         // Prevent recursion by limiting error message length
         if (typeof errorMessage === 'string' && errorMessage.length > 500) {
           errorMessage = errorMessage.substring(0, 500) + '...'

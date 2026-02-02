@@ -64,16 +64,25 @@ export default function SettingsPage() {
 
   const handleSaveApifyToken = async () => {
     try {
-      await updateApifyToken(apifyToken)
+      // Validar que el token no esté vacío
+      if (!apifyToken || apifyToken.trim() === '') {
+        setMessage({ type: 'error', text: 'El token no puede estar vacío' })
+        setTimeout(() => setMessage(null), 3000)
+        return
+      }
+
+      await updateApifyToken(apifyToken.trim())
       setMessage({ type: 'success', text: 'Token de Apify actualizado correctamente' })
       // Reload usage info
       const usage = await getApifyUsage().catch(() => null)
       setApifyUsage(usage)
       setTimeout(() => setMessage(null), 3000)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating token:', error)
-      setMessage({ type: 'error', text: 'Error al actualizar el token' })
-      setTimeout(() => setMessage(null), 3000)
+      // Mostrar el mensaje de error del backend si está disponible
+      const errorMessage = error?.message || 'Error al actualizar el token'
+      setMessage({ type: 'error', text: errorMessage })
+      setTimeout(() => setMessage(null), 5000)
     }
   }
 
