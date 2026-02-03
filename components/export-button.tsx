@@ -24,11 +24,11 @@ import { PdfPreviewModal } from '@/components/pdf-preview-modal'
 
 interface ExportButtonProps {
   dateRange?: { from?: Date; to?: Date } | null
-  selectedSource: string
+  selectedSources: string[]
   sources: Array<{ id: string; label?: string; url: string }>
 }
 
-export function ExportButton({ dateRange, selectedSource, sources }: ExportButtonProps) {
+export function ExportButton({ dateRange, selectedSources, sources }: ExportButtonProps) {
   const [exporting, setExporting] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null)
@@ -41,20 +41,97 @@ export function ExportButton({ dateRange, selectedSource, sources }: ExportButto
       // Prepare filters
       const dateFrom = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined
       const dateTo = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined
-      const profileId = selectedSource !== 'all' ? parseInt(selectedSource) : undefined
+      const profileIds = selectedSources.length > 0 ? selectedSources.map(id => parseInt(id)) : undefined
       
-      const sourceName = selectedSource !== 'all' 
-        ? sources.find(s => s.id === selectedSource)?.label || sources.find(s => s.id === selectedSource)?.url.split('/').pop() || 'Fuente seleccionada'
-        : 'Todas las fuentes'
+      const sourceName = selectedSources.length === 0
+        ? 'Todas las fuentes'
+        : selectedSources.length === 1
+        ? sources.find(s => s.id === selectedSources[0])?.label || sources.find(s => s.id === selectedSources[0])?.url.split('/').pop() || 'Fuente seleccionada'
+        : `${selectedSources.length} fuentes seleccionadas`
 
       toast.info('Generando reporte...', { duration: 2000 })
 
-      // Fetch all data
-      const [statsResponse, postsResponse, sentimentResponse] = await Promise.all([
-        getOverviewStats(undefined, profileId, dateFrom, dateTo),
-        getPosts({ limit: 500, date_from: dateFrom, date_to: dateTo, profile_id: profileId }),
-        getSentimentStats(undefined, profileId).catch(() => null)
-      ])
+      // Fetch all data - handle multiple profiles
+      let statsResponse, postsResponse, sentimentResponse
+      
+      if (profileIds && profileIds.length > 0) {
+        // Multiple profiles - combine results
+        const allStatsPromises = profileIds.map(id => getOverviewStats(undefined, id, dateFrom, dateTo))
+        const allPostsPromises = profileIds.map(id => getPosts({ limit: 500, date_from: dateFrom, date_to: dateTo, profile_id: id }))
+        const allSentimentPromises = profileIds.map(id => getSentimentStats(undefined, id).catch(() => null))
+        
+        const [allStats, allPosts, allSentiments] = await Promise.all([
+          Promise.all(allStatsPromises),
+          Promise.all(allPostsPromises),
+          Promise.all(allSentimentPromises)
+        ])
+        
+        // Combine stats
+        statsResponse = allStats.reduce((acc, stats) => {
+          acc.total_posts += stats.total_posts
+          acc.total_interactions += stats.total_interactions
+          acc.total_comments += stats.total_comments
+          acc.avg_interactions = (acc.avg_interactions * (acc.total_posts - stats.total_posts) + stats.avg_interactions * stats.total_posts) / acc.total_posts || 0
+          stats.platforms.forEach(p => {
+            const existing = acc.platforms.find(pl => pl.platform === p.platform)
+            if (existing) {
+              existing.posts += p.posts
+              existing.interactions += p.interactions
+              existing.comments += p.comments
+            } else {
+              acc.platforms.push({ ...p })
+            }
+          })
+          return acc
+        }, {
+          total_posts: 0,
+          total_interactions: 0,
+          total_comments: 0,
+          avg_interactions: 0,
+          platforms: [] as Array<{ platform: string; posts: number; interactions: number; comments: number }>
+        })
+        
+        // Combine posts
+        const allPostsData = allPosts.flatMap(response => response.data || [])
+        const uniquePosts = Array.from(
+          new Map(allPostsData.map(post => [post.post_id, post])).values()
+        )
+        postsResponse = {
+          data: uniquePosts,
+          total: uniquePosts.length,
+          limit: 500,
+          offset: 0
+        }
+        
+        // Combine sentiment
+        const validSentiments = allSentiments.filter(s => s !== null)
+        if (validSentiments.length > 0) {
+          sentimentResponse = validSentiments.reduce((acc, s) => {
+            if (s) {
+              acc.total += s.total
+              acc.positive += s.positive
+              acc.negative += s.negative
+              acc.neutral += s.neutral
+            }
+            return acc
+          }, { total: 0, positive: 0, negative: 0, neutral: 0, percentages: { POSITIVE: 0, NEGATIVE: 0, NEUTRAL: 0 } })
+          
+          if (sentimentResponse.total > 0) {
+            sentimentResponse.percentages.POSITIVE = (sentimentResponse.positive / sentimentResponse.total) * 100
+            sentimentResponse.percentages.NEGATIVE = (sentimentResponse.negative / sentimentResponse.total) * 100
+            sentimentResponse.percentages.NEUTRAL = (sentimentResponse.neutral / sentimentResponse.total) * 100
+          }
+        } else {
+          sentimentResponse = null
+        }
+      } else {
+        // All profiles or no selection
+        [statsResponse, postsResponse, sentimentResponse] = await Promise.all([
+          getOverviewStats(undefined, undefined, dateFrom, dateTo),
+          getPosts({ limit: 500, date_from: dateFrom, date_to: dateTo, profile_id: undefined }),
+          getSentimentStats(undefined, undefined).catch(() => null)
+        ])
+      }
 
       // Transform data
       const kpis = overviewStatsToKPIs(statsResponse)

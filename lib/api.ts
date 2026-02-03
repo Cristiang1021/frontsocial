@@ -3,7 +3,7 @@
  * Replaces mock data with real API calls
  */
 
-// Get base URL - use production URL by default, fallback to localhost for development
+// Get base URL - use ngrok URL for testing (even in localhost)
 const getBaseUrl = (): string => {
   // ngrok URL (backend local con ngrok)
   const NGROK_URL = 'https://www.backsocual.ngrok.app/api'
@@ -14,15 +14,12 @@ const getBaseUrl = (): string => {
   // Local development URL
   const LOCAL_URL = 'http://localhost:8000/api'
   
-  // Si ngrok está configurado, usarlo en producción (Vercel)
-  if (NGROK_URL && typeof window !== 'undefined') {
-    const isLocalhost = window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1' ||
-                        window.location.hostname === '0.0.0.0'
-    return isLocalhost ? LOCAL_URL : NGROK_URL
+  // Usar ngrok siempre que esté configurado (incluso en localhost para probar)
+  if (NGROK_URL) {
+    return NGROK_URL
   }
   
-  // Check if we're in development (localhost or 127.0.0.1)
+  // Si no hay ngrok, usar localhost en desarrollo
   if (typeof window !== 'undefined') {
     const isLocalhost = window.location.hostname === 'localhost' || 
                         window.location.hostname === '127.0.0.1' ||

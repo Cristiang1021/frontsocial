@@ -15,7 +15,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
-import { CalendarIcon, Download, Bell, User, FileText, FileSpreadsheet } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { CalendarIcon, Download, Bell, User, FileText, FileSpreadsheet, CheckSquare } from 'lucide-react'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { getProfiles } from '@/lib/api'
@@ -34,10 +35,11 @@ const datePresets = [
 ]
 
 export function Topbar() {
-  const { dateRange, setDateRange, selectedSource, setSelectedSource } = useFilters()
+  const { dateRange, setDateRange, selectedSources, setSelectedSources } = useFilters()
   const [datePreset, setDatePreset] = useState('30d')
   const [sources, setSources] = useState<any[]>([])
   const [mounted, setMounted] = useState(false)
+  const [sourcesPopoverOpen, setSourcesPopoverOpen] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -106,13 +108,13 @@ export function Topbar() {
   // Prevent hydration mismatch by not rendering until mounted
   if (!mounted) {
     return (
-      <header className="flex h-16 items-center justify-between border-b border-border bg-background px-6">
-        <div className="flex items-center gap-4">
-          <div className="w-[140px] h-10 bg-secondary animate-pulse rounded-md" />
-          <div className="w-[200px] h-10 bg-secondary animate-pulse rounded-md" />
-          <div className="w-[180px] h-10 bg-secondary animate-pulse rounded-md" />
+      <header className="flex flex-col sm:flex-row h-auto sm:h-16 items-stretch sm:items-center justify-between border-b border-border bg-background px-3 sm:px-6 py-2 sm:py-0 gap-2 sm:gap-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+          <div className="w-full sm:w-[140px] h-10 bg-secondary animate-pulse rounded-md" />
+          <div className="w-full sm:w-[200px] h-10 bg-secondary animate-pulse rounded-md" />
+          <div className="w-full sm:w-[180px] h-10 bg-secondary animate-pulse rounded-md" />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 justify-end">
           <div className="w-24 h-8 bg-secondary animate-pulse rounded-md" />
         </div>
       </header>
@@ -120,11 +122,11 @@ export function Topbar() {
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-background px-6">
-      <div className="flex items-center gap-4">
+    <header className="flex flex-col sm:flex-row h-auto sm:h-16 items-stretch sm:items-center justify-between border-b border-border bg-background px-3 sm:px-6 py-2 sm:py-0 gap-2 sm:gap-0">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-4">
         {/* Date Range Selector */}
         <Select value={datePreset} onValueChange={handlePresetChange}>
-          <SelectTrigger className="w-[140px] bg-secondary text-secondary-foreground">
+          <SelectTrigger className="w-full sm:w-[140px] bg-secondary text-secondary-foreground text-xs sm:text-sm">
             <SelectValue placeholder="Seleccionar rango" />
           </SelectTrigger>
           <SelectContent>
@@ -142,22 +144,24 @@ export function Topbar() {
             <Button
               variant="secondary"
               className={cn(
-                'justify-start text-left font-normal',
+                'justify-start text-left font-normal w-full sm:w-auto text-xs sm:text-sm',
                 !dateRange && 'text-muted-foreground'
               )}
             >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {dateRange?.from ? (
-                dateRange.to ? (
-                  <>
-                    {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
-                  </>
+              <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+              <span className="truncate">
+                {dateRange?.from ? (
+                  dateRange.to ? (
+                    <>
+                      {format(dateRange.from, 'MMM d')} - {format(dateRange.to, 'MMM d, yyyy')}
+                    </>
+                  ) : (
+                    format(dateRange.from, 'MMM d, yyyy')
+                  )
                 ) : (
-                  format(dateRange.from, 'MMM d, yyyy')
-                )
-              ) : (
-                <span>Seleccionar fecha</span>
-              )}
+                  <span className="hidden sm:inline">Seleccionar fecha</span>
+                )}
+              </span>
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
@@ -167,39 +171,123 @@ export function Topbar() {
               defaultMonth={dateRange?.from}
               selected={dateRange}
               onSelect={setDateRange}
-              numberOfMonths={2}
+              numberOfMonths={typeof window !== 'undefined' && window.innerWidth < 640 ? 1 : 2}
             />
           </PopoverContent>
         </Popover>
 
-        {/* Source Selector */}
-        <Select value={selectedSource} onValueChange={setSelectedSource}>
-          <SelectTrigger className="w-[180px] bg-secondary text-secondary-foreground">
-            <SelectValue placeholder="Seleccionar fuente" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas las Fuentes</SelectItem>
-            {sources.map((source) => (
-              <SelectItem key={source.id} value={source.id}>
-                {source.label || source.url.split('/').pop()}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Source Selector - Multiple Selection */}
+        <Popover open={sourcesPopoverOpen} onOpenChange={setSourcesPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="secondary"
+              className={cn(
+                'w-full sm:w-[200px] justify-between bg-secondary text-secondary-foreground text-xs sm:text-sm',
+                selectedSources.length === 0 && 'text-muted-foreground'
+              )}
+            >
+              <span className="truncate">
+                {selectedSources.length === 0
+                  ? 'Todas las Fuentes'
+                  : selectedSources.length === 1
+                  ? sources.find(s => s.id === selectedSources[0])?.label || sources.find(s => s.id === selectedSources[0])?.url.split('/').pop() || '1 fuente'
+                  : `${selectedSources.length} fuentes`}
+              </span>
+              <CheckSquare className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[280px] sm:w-[250px] p-0" align="start">
+            <div className="p-2">
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <span className="text-sm font-medium">Seleccionar Fuentes</span>
+                {selectedSources.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => {
+                      setSelectedSources([])
+                    }}
+                  >
+                    Limpiar
+                  </Button>
+                )}
+              </div>
+              <div className="max-h-[300px] overflow-y-auto">
+                <div className="p-1">
+                  <div
+                    className="flex items-center space-x-2 rounded-sm px-2 py-1.5 hover:bg-accent cursor-pointer"
+                    onClick={() => {
+                      if (selectedSources.length === sources.length) {
+                        setSelectedSources([])
+                      } else {
+                        setSelectedSources(sources.map(s => s.id))
+                      }
+                    }}
+                  >
+                    <Checkbox
+                      checked={selectedSources.length === sources.length && sources.length > 0}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedSources(sources.map(s => s.id))
+                        } else {
+                          setSelectedSources([])
+                        }
+                      }}
+                    />
+                    <label className="text-sm font-medium leading-none cursor-pointer flex-1">
+                      Todas las Fuentes
+                    </label>
+                  </div>
+                  {sources.map((source) => {
+                    const isSelected = selectedSources.includes(source.id)
+                    return (
+                      <div
+                        key={source.id}
+                        className="flex items-center space-x-2 rounded-sm px-2 py-1.5 hover:bg-accent cursor-pointer"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedSources(selectedSources.filter(id => id !== source.id))
+                          } else {
+                            setSelectedSources([...selectedSources, source.id])
+                          }
+                        }}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedSources([...selectedSources, source.id])
+                            } else {
+                              setSelectedSources(selectedSources.filter(id => id !== source.id))
+                            }
+                          }}
+                        />
+                        <label className="text-sm leading-none cursor-pointer flex-1 truncate">
+                          {source.label || source.url.split('/').pop()}
+                        </label>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 justify-end">
         {/* Export Button */}
-        <ExportButton dateRange={dateRange} selectedSource={selectedSource} sources={sources} />
+        <ExportButton dateRange={dateRange} selectedSources={selectedSources} sources={sources} />
 
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
+        {/* Notifications - Hidden on mobile */}
+        <Button variant="ghost" size="icon" className="relative hidden sm:flex">
           <Bell className="h-5 w-5 text-muted-foreground" />
           <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" />
         </Button>
 
-        {/* User Avatar */}
-        <Button variant="ghost" size="icon">
+        {/* User Avatar - Hidden on mobile */}
+        <Button variant="ghost" size="icon" className="hidden sm:flex">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary">
             <User className="h-4 w-4 text-secondary-foreground" />
           </div>

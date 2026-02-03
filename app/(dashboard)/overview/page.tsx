@@ -37,7 +37,7 @@ export default function OverviewPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const postsPerPage = 10
   const [copied, setCopied] = useState(false)
-  const { dateRange, selectedSource } = useFilters()
+  const { dateRange, selectedSources } = useFilters()
 
   const handleShareView = () => {
     // Build share URL with current filters
@@ -48,8 +48,8 @@ export default function OverviewPage() {
     if (dateRange?.to) {
       params.set('to', dateRange.to.toISOString().split('T')[0])
     }
-    if (selectedSource && selectedSource !== 'all') {
-      params.set('profile', selectedSource)
+    if (selectedSources.length > 0) {
+      params.set('profiles', selectedSources.join(','))
     }
     
     const shareUrl = `${window.location.origin}/view${params.toString() ? `?${params.toString()}` : ''}`
@@ -71,9 +71,173 @@ export default function OverviewPage() {
         // Prepare date filters
         const dateFrom = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined
         const dateTo = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined
-        const profileId = selectedSource !== 'all' ? parseInt(selectedSource) : undefined
+        const profileIds = selectedSources.length > 0 ? selectedSources.map(id => parseInt(id)) : undefined
         
-        console.log('Loading overview with filters:', { dateFrom, dateTo, profileId })
+        console.log('Loading overview with filters:', { dateFrom, dateTo, profileIds })
+        
+        // If multiple profiles selected, make multiple API calls and combine results
+        if (profileIds && profileIds.length > 0) {
+          // Load data for each profile in parallel
+          const allPromises = profileIds.map(profileId => 
+            Promise.all([
+              getOverviewStats(undefined, profileId, dateFrom, dateTo),
+              getPosts({ limit: 500, date_from: dateFrom, date_to: dateTo, profile_id: profileId }),
+              getSentimentStats(undefined, profileId).catch(() => ({ total: 0, positive: 0, negative: 0, neutral: 0, percentages: { POSITIVE: 0, NEGATIVE: 0, NEUTRAL: 0 } }))
+            ])
+          )
+          
+          const allResults = await Promise.all(allPromises)
+          
+          // Combine stats
+          const combinedStats = allResults.reduce((acc, [stats]) => {
+            acc.total_posts += stats.total_posts
+            acc.total_interactions += stats.total_interactions
+            acc.total_comments += stats.total_comments
+            acc.avg_interactions = (acc.avg_interactions * (acc.total_posts - stats.total_posts) + stats.avg_interactions * stats.total_posts) / acc.total_posts || 0
+            
+            // Combine platforms
+            stats.platforms.forEach(platform => {
+              const existing = acc.platforms.find(p => p.platform === platform.platform)
+              if (existing) {
+                existing.posts += platform.posts
+                existing.interactions += platform.interactions
+                existing.comments += platform.comments
+              } else {
+                acc.platforms.push({ ...platform })
+              }
+            })
+            return acc
+          }, {
+            total_posts: 0,
+            total_interactions: 0,
+            total_comments: 0,
+            avg_interactions: 0,
+            platforms: [] as Array<{ platform: string; posts: number; interactions: number; comments: number }>
+          })
+          
+          // Combine posts
+          const allPostsData = allResults.flatMap(([, posts]) => posts.data || [])
+          const combinedPostsResponse = {
+            data: allPostsData,
+            total: allPostsData.length,
+            limit: 500,
+            offset: 0
+          }
+          
+          // Combine sentiment stats
+          const combinedSentiment = allResults.reduce((acc, [, , sentiment]) => {
+            acc.total += sentiment.total
+            acc.positive += sentiment.positive
+            acc.negative += sentiment.negative
+            acc.neutral += sentiment.neutral
+            return acc
+          }, { total: 0, positive: 0, negative: 0, neutral: 0, percentages: { POSITIVE: 0, NEGATIVE: 0, NEUTRAL: 0 } })
+          
+          // Calculate percentages
+          if (combinedSentiment.total > 0) {
+            combinedSentiment.percentages.POSITIVE = (combinedSentiment.positive / combinedSentiment.total) * 100
+            combinedSentiment.percentages.NEGATIVE = (combinedSentiment.negative / combinedSentiment.total) * 100
+            combinedSentiment.percentages.NEUTRAL = (combinedSentiment.neutral / combinedSentiment.total) * 100
+          }
+          
+          const statsResponse = combinedStats
+          const postsResponse = combinedPostsResponse
+          const sentimentResponse = combinedSentiment
+          
+          // Continue with existing logic...
+          console.log('Overview data loaded:', {
+            statsTotal: statsResponse.total_interactions,
+            postsCount: postsResponse.data?.length || 0,
+            platforms: statsResponse.platforms?.length || 0
+          })
+
+          // Transform data using adapters
+          const kpisData = overviewStatsToKPIs(statsResponse)
+          setKpis(kpisData)
+
+          // Ensure postsResponse.data is an array
+          const postsData = Array.isArray(postsResponse.data) ? postsResponse.data : []
+          
+          const platformMetricsData = overviewStatsToPlatformMetrics(statsResponse, postsData)
+          setPlatformMetrics(platformMetricsData)
+
+          // Convert API posts to frontend format
+          const posts = postsData.map(apiPostToPost)
+            .sort((a, b) => b.engagementRate - a.engagementRate)
+          setAllPosts(posts)
+          setTopPosts(posts.slice(0, 10))
+
+          // Get sentiment stats by platform - combine for all profiles
+          const sentimentByPlatformData: Record<string, any> = {}
+          for (const platform of ['facebook', 'instagram', 'tiktok']) {
+            try {
+              const platformSentiments = await Promise.all(
+                profileIds.map(profileId => 
+                  getSentimentStats(platform, profileId).catch(() => null)
+                )
+              )
+              const validSentiments = platformSentiments.filter(s => s && s.total > 0)
+              if (validSentiments.length > 0) {
+                const combined = validSentiments.reduce((acc, s) => {
+                  acc.total += s!.total
+                  acc.positive += s!.positive
+                  acc.negative += s!.negative
+                  acc.neutral += s!.neutral
+                  return acc
+                }, { total: 0, positive: 0, negative: 0, neutral: 0 })
+                const dist = sentimentStatsToDistribution({
+                  total: combined.total,
+                  positive: combined.positive,
+                  negative: combined.negative,
+                  neutral: combined.neutral,
+                  percentages: {
+                    POSITIVE: combined.total > 0 ? (combined.positive / combined.total) * 100 : 0,
+                    NEGATIVE: combined.total > 0 ? (combined.negative / combined.total) * 100 : 0,
+                    NEUTRAL: combined.total > 0 ? (combined.neutral / combined.total) * 100 : 0
+                  }
+                })
+                sentimentByPlatformData[platform] = {
+                  total: combined.total,
+                  positive: dist.positive,
+                  neutral: dist.neutral,
+                  negative: dist.negative
+                }
+              }
+            } catch (error) {
+              console.error(`Error loading sentiment for ${platform}:`, error)
+            }
+          }
+          setSentimentByPlatform(sentimentByPlatformData)
+
+          // Generate metric points for charts
+          const metricPoints = postsToMetricPoints(postsData)
+          setInteractionsData(metricPoints.slice(-30)) // Last 30 days
+
+          // Top days by reach
+          const daysData = metricPoints
+            .map(point => ({
+              date: point.date,
+              reach: point.reach
+            }))
+            .sort((a, b) => b.reach - a.reach)
+            .slice(0, 7)
+          setTopDays(daysData)
+
+          // Set sentiment stats - convert percentages to the format we need
+          const distribution = sentimentStatsToDistribution(sentimentResponse)
+          setSentimentStats({
+            total: sentimentResponse.total,
+            positive: distribution.positive,
+            neutral: distribution.neutral,
+            negative: distribution.negative
+          })
+
+          setState('success')
+          return
+        }
+        
+        // Single profile or all profiles - original logic
+        const profileId = undefined
         
         // Load overview stats, posts, and sentiment stats in parallel
         const [statsResponse, postsResponse, sentimentResponse] = await Promise.all([
@@ -155,7 +319,7 @@ export default function OverviewPage() {
     }
 
     loadData()
-  }, [dateRange, selectedSource]) // Recargar cuando cambien los filtros
+  }, [dateRange, selectedSources]) // Recargar cuando cambien los filtros
 
   // Calculate advanced analytics
   const analytics = useMemo(() => {
@@ -257,15 +421,15 @@ export default function OverviewPage() {
   }).sort((a, b) => b.value - a.value) // Ordenar por valor descendente
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Resumen Ejecutivo</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Resumen Ejecutivo</h1>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
             Análisis completo del rendimiento de tus redes sociales
             {dateRange?.from && dateRange?.to && (
-              <span className="ml-2">
+              <span className="ml-2 hidden sm:inline">
                 ({new Date(dateRange.from).toLocaleDateString('es-ES')} - {new Date(dateRange.to).toLocaleDateString('es-ES')})
               </span>
             )}
@@ -274,17 +438,20 @@ export default function OverviewPage() {
         <Button
           onClick={handleShareView}
           variant="outline"
-          className="gap-2"
+          className="gap-2 w-full sm:w-auto text-xs sm:text-sm"
+          size="sm"
         >
           {copied ? (
             <>
               <Check className="h-4 w-4" />
-              ¡Copiado!
+              <span className="hidden sm:inline">¡Copiado!</span>
+              <span className="sm:hidden">Copiado</span>
             </>
           ) : (
             <>
               <Share2 className="h-4 w-4" />
-              Compartir Vista Pública
+              <span className="hidden sm:inline">Compartir Vista Pública</span>
+              <span className="sm:hidden">Compartir</span>
             </>
           )}
         </Button>
@@ -292,7 +459,7 @@ export default function OverviewPage() {
 
       {/* Key Insights */}
       {analytics && (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
           <Card className="bg-card border-border">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -359,8 +526,8 @@ export default function OverviewPage() {
 
       {/* KPI Cards */}
       <div>
-        <h2 className="mb-4 text-lg font-medium text-foreground">Métricas Principales</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+        <h2 className="mb-3 sm:mb-4 text-base sm:text-lg font-medium text-foreground">Métricas Principales</h2>
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           {kpis.map((kpi) => (
             <KPICard key={kpi.label} data={kpi} />
           ))}
@@ -369,8 +536,8 @@ export default function OverviewPage() {
 
       {/* Platform Performance */}
       <div>
-        <h2 className="mb-4 text-lg font-medium text-foreground">Rendimiento por Plataforma</h2>
-        <div className="grid gap-4 md:grid-cols-3">
+        <h2 className="mb-3 sm:mb-4 text-base sm:text-lg font-medium text-foreground">Rendimiento por Plataforma</h2>
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
           {platformMetrics.map((platform) => (
             <PlatformCard key={platform.platform} data={platform} />
           ))}
@@ -380,8 +547,8 @@ export default function OverviewPage() {
       {/* Sentiment Analysis Section */}
       {sentimentStats && sentimentStats.total > 0 && (
         <div>
-          <h2 className="mb-4 text-lg font-medium text-foreground">Análisis de Sentimiento de Comentarios</h2>
-          <div className="grid gap-6 lg:grid-cols-3">
+          <h2 className="mb-3 sm:mb-4 text-base sm:text-lg font-medium text-foreground">Análisis de Sentimiento de Comentarios</h2>
+          <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-3">
             {/* Sentiment Distribution Donut */}
             <DonutChart
               title="Distribución de Sentimiento"
@@ -457,7 +624,7 @@ export default function OverviewPage() {
       )}
 
       {/* Advanced Analytics Row */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-3">
         {/* Platform Distribution */}
         {platformDistribution.length > 0 && (
           <DonutChart
@@ -539,7 +706,7 @@ export default function OverviewPage() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
         {/* Interactions Over Time */}
         <LineChart
           title="Evolución de Alcance e Interacciones"

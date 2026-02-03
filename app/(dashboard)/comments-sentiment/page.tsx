@@ -46,15 +46,105 @@ export default function CommentsSentimentPage() {
   const [platformFilter, setPlatformFilter] = useState<Platform | 'all'>('all')
   const [sentimentFilter, setSentimentFilter] = useState<SentimentFilter>('all')
   const [tagFilter, setTagFilter] = useState<TagFilter>('all')
-  const { dateRange, selectedSource } = useFilters()
+  const { dateRange, selectedSources } = useFilters()
 
   useEffect(() => {
     async function loadComments() {
       try {
         setState('loading')
         const platform = platformFilter !== 'all' ? platformFilter : undefined
-        const profileId = selectedSource !== 'all' ? parseInt(selectedSource) : undefined
+        const profileIds = selectedSources.length > 0 ? selectedSources.map(id => parseInt(id)) : undefined
         const sentiment = sentimentFilter !== 'all' ? sentimentFilter : undefined
+        
+        // If multiple profiles selected, make multiple API calls and combine results
+        if (profileIds && profileIds.length > 0) {
+          const allPromises = profileIds.map(profileId => 
+            Promise.all([
+              getComments({ platform, profile_id: profileId, sentiment, limit: 500 }),
+              getSentimentStats(platform, profileId)
+            ])
+          )
+          
+          const allResults = await Promise.all(allPromises)
+          
+          // Combine comments
+          const allCommentsData = allResults.flatMap(([comments]) => comments.data || [])
+          const uniqueComments = Array.from(
+            new Map(allCommentsData.map(comment => [comment.id, comment])).values()
+          )
+          const commentsResponse = {
+            data: uniqueComments,
+            total: uniqueComments.length,
+            limit: 500,
+            offset: 0
+          }
+          
+          // Combine sentiment stats
+          const combinedSentiment = allResults.reduce((acc, [, stats]) => {
+            acc.total += stats.total
+            acc.positive += stats.positive
+            acc.negative += stats.negative
+            acc.neutral += stats.neutral
+            return acc
+          }, { total: 0, positive: 0, negative: 0, neutral: 0, percentages: { POSITIVE: 0, NEGATIVE: 0, NEUTRAL: 0 } })
+          
+          // Calculate percentages
+          if (combinedSentiment.total > 0) {
+            combinedSentiment.percentages.POSITIVE = (combinedSentiment.positive / combinedSentiment.total) * 100
+            combinedSentiment.percentages.NEGATIVE = (combinedSentiment.negative / combinedSentiment.total) * 100
+            combinedSentiment.percentages.NEUTRAL = (combinedSentiment.neutral / combinedSentiment.total) * 100
+          }
+          
+          const statsResponse = combinedSentiment
+          
+          console.log('Comments response (combined):', {
+            total: commentsResponse.total,
+            dataLength: commentsResponse.data?.length,
+            firstComment: commentsResponse.data?.[0]
+          })
+
+          // Transform comments - ensure data is an array
+          const commentsData = Array.isArray(commentsResponse.data) ? commentsResponse.data : []
+          console.log('Comments data array length:', commentsData.length)
+          
+          const transformedComments = commentsData.map((apiComment, index) => {
+            try {
+              // Pass platform filter to adapter, it will use comment's platform if available
+              return apiCommentToComment(apiComment, platform as Platform)
+            } catch (error) {
+              console.error(`Error transforming comment ${index}:`, error, apiComment)
+              // Return a default comment to prevent crashes
+              return {
+                id: String(apiComment.id || index),
+                platform: ((apiComment as any).platform || platform || 'facebook') as Platform,
+                postId: String(apiComment.post_id || ''),
+                date: (apiComment as any).posted_at || new Date().toISOString(),
+                text: apiComment.text || '',
+                author: apiComment.author || 'Unknown',
+                sentiment: 'neutral' as const,
+                tag: 'praise' as const
+              }
+            }
+          })
+          console.log('Transformed comments length:', transformedComments.length)
+          console.log('Sample transformed comment:', transformedComments[0])
+          setComments(transformedComments)
+
+          // Transform sentiment stats
+          const distribution = sentimentStatsToDistribution(statsResponse)
+          setSentimentStats({
+            total: statsResponse.total,
+            positive: distribution.positive,
+            neutral: distribution.neutral,
+            negative: distribution.negative
+          })
+
+          setState('success')
+          return
+        }
+        
+        // Single profile or all profiles - original logic
+        const profileId = undefined
         
         const [commentsResponse, statsResponse] = await Promise.all([
           getComments({ platform, profile_id: profileId, sentiment, limit: 500 }),
@@ -114,7 +204,7 @@ export default function CommentsSentimentPage() {
       }
     }
     loadComments()
-  }, [platformFilter, selectedSource, sentimentFilter]) // Recargar cuando cambien los filtros
+  }, [platformFilter, selectedSources, sentimentFilter]) // Recargar cuando cambien los filtros
 
   const filteredComments = useMemo(() => {
     console.log('Filtering comments:', {
@@ -229,7 +319,7 @@ export default function CommentsSentimentPage() {
           <div className="h-8 w-48 animate-pulse rounded bg-muted" />
           <div className="mt-2 h-4 w-64 animate-pulse rounded bg-muted" />
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="bg-card border-border">
               <CardContent className="p-5">
@@ -267,17 +357,17 @@ export default function CommentsSentimentPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Comentarios y Sentimiento</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Comentarios y Sentimiento</h1>
+        <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
           Analiza el sentimiento de los comentarios y rastrea el feedback de la audiencia
         </p>
       </div>
 
       {/* Summary KPIs */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 md:grid-cols-4">
         <KPICard
           data={{
             label: 'Total de Comentarios',
@@ -321,7 +411,7 @@ export default function CommentsSentimentPage() {
       </div>
 
       {/* Charts and Insights Row */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
         {/* Sentiment Distribution */}
         <DonutChart
           title="Distribución de Sentimiento"

@@ -69,7 +69,7 @@ export function PlatformPage({ platform }: PlatformPageProps) {
   const Icon = config.icon
   const [kpis, setKpis] = useState<any[]>(config.kpis)
 
-  const { dateRange, selectedSource } = useFilters()
+  const { dateRange, selectedSources } = useFilters()
 
   // Load platform data
   useEffect(() => {
@@ -78,9 +78,98 @@ export function PlatformPage({ platform }: PlatformPageProps) {
         setState('loading')
         const dateFrom = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined
         const dateTo = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined
-        const profileId = selectedSource !== 'all' ? parseInt(selectedSource) : undefined
+        const profileIds = selectedSources.length > 0 ? selectedSources.map(id => parseInt(id)) : undefined
         
-        console.log('Loading platform data:', { platform, dateFrom, dateTo, profileId })
+        console.log('Loading platform data:', { platform, dateFrom, dateTo, profileIds })
+        
+        // If multiple profiles selected, make multiple API calls and combine results
+        if (profileIds && profileIds.length > 0) {
+          const allPromises = profileIds.map(profileId => 
+            Promise.all([
+              getPosts({ platform, limit: 200, date_from: dateFrom, date_to: dateTo, profile_id: profileId }),
+              getOverviewStats(platform, profileId, dateFrom, dateTo)
+            ])
+          )
+          
+          const allResults = await Promise.all(allPromises)
+          
+          // Combine posts
+          const allPostsData = allResults.flatMap(([posts]) => posts.data || [])
+          const uniquePosts = Array.from(
+            new Map(allPostsData.map(post => [post.post_id, post])).values()
+          )
+          const postsResponse = {
+            data: uniquePosts,
+            total: uniquePosts.length,
+            limit: 200,
+            offset: 0
+          }
+          
+          // Combine stats
+          const combinedStats = allResults.reduce((acc, [, stats]) => {
+            acc.total_posts += stats.total_posts
+            acc.total_interactions += stats.total_interactions
+            acc.total_comments += stats.total_comments
+            acc.avg_interactions = (acc.avg_interactions * (acc.total_posts - stats.total_posts) + stats.avg_interactions * stats.total_posts) / acc.total_posts || 0
+            
+            // Combine platforms
+            stats.platforms.forEach(p => {
+              if (p.platform === platform) {
+                const existing = acc.platforms.find(pl => pl.platform === p.platform)
+                if (existing) {
+                  existing.posts += p.posts
+                  existing.interactions += p.interactions
+                  existing.comments += p.comments
+                } else {
+                  acc.platforms.push({ ...p })
+                }
+              }
+            })
+            return acc
+          }, {
+            total_posts: 0,
+            total_interactions: 0,
+            total_comments: 0,
+            avg_interactions: 0,
+            platforms: [] as Array<{ platform: string; posts: number; interactions: number; comments: number }>
+          })
+          
+          const statsResponse = combinedStats
+          
+          console.log('Platform data loaded (combined):', {
+            postsCount: postsResponse.data?.length || 0,
+            statsPlatforms: statsResponse.platforms?.length || 0
+          })
+
+          // Transform posts
+          const posts = postsResponse.data.map(apiPostToPost)
+          setPlatformPosts(posts)
+
+          // Generate trend data from posts
+          const metricPoints = postsToMetricPoints(postsResponse.data)
+          console.log('Metric points generated:', metricPoints.length)
+          setTrendData(metricPoints.slice(-30)) // Last 30 days
+
+          // Update KPIs from stats (use config KPIs as fallback)
+          try {
+            const kpisData = overviewStatsToKPIs(statsResponse)
+            if (kpisData.length >= 5) {
+              setKpis(kpisData.slice(0, 5))
+            } else {
+              // If not enough KPIs, keep default ones but update with available data
+              console.log('Not enough KPIs from stats, using defaults')
+            }
+          } catch (error) {
+            console.error('Error updating KPIs:', error)
+            // Keep default KPIs
+          }
+
+          setState('success')
+          return
+        }
+        
+        // Single profile or all profiles - original logic
+        const profileId = undefined
         
         const [postsResponse, statsResponse] = await Promise.all([
           getPosts({ platform, limit: 200, date_from: dateFrom, date_to: dateTo, profile_id: profileId }),
@@ -122,7 +211,7 @@ export function PlatformPage({ platform }: PlatformPageProps) {
       }
     }
     loadPlatformData()
-  }, [platform, dateRange, selectedSource]) // Recargar cuando cambien los filtros
+  }, [platform, dateRange, selectedSources]) // Recargar cuando cambien los filtros
 
   const handlePostClick = (post: Post) => {
     setSelectedPost(post)
@@ -188,18 +277,18 @@ export function PlatformPage({ platform }: PlatformPageProps) {
   }))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Page Header */}
       <div className="flex items-center gap-3">
         <div
-          className="flex h-10 w-10 items-center justify-center rounded-lg"
+          className="flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg shrink-0"
           style={{ backgroundColor: `${config.color}20` }}
         >
-          <Icon className="h-5 w-5" style={{ color: config.color }} />
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" style={{ color: config.color }} />
         </div>
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">{config.name}</h1>
-          <p className="text-sm text-muted-foreground">Análisis y métricas de rendimiento</p>
+          <h1 className="text-xl sm:text-2xl font-semibold text-foreground">{config.name}</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">Análisis y métricas de rendimiento</p>
         </div>
       </div>
 
@@ -212,9 +301,9 @@ export function PlatformPage({ platform }: PlatformPageProps) {
         </TabsList>
 
         {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
+        <TabsContent value="overview" className="space-y-4 sm:space-y-6">
           {/* KPI Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-5">
             {kpis.map((kpi) => (
               <KPICard key={kpi.label} data={kpi} />
             ))}
@@ -222,7 +311,7 @@ export function PlatformPage({ platform }: PlatformPageProps) {
 
           {/* Charts */}
           {platformPosts.length > 0 ? (
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
               {/* Trend Chart - Only show if we have enough data points */}
               {trendData && trendData.length > 0 ? (
                 <LineChart
@@ -300,7 +389,7 @@ export function PlatformPage({ platform }: PlatformPageProps) {
 
           {/* Additional Charts Row */}
           {platformPosts.length > 0 && (
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
               {/* Engagement Rate Distribution */}
               {mockBestDays.length > 0 ? (
                 <BarChart
@@ -376,16 +465,18 @@ export function PlatformPage({ platform }: PlatformPageProps) {
         </TabsContent>
 
         {/* Content Tab */}
-        <TabsContent value="content" className="space-y-6">
+        <TabsContent value="content" className="space-y-4 sm:space-y-6">
           <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-base font-medium text-card-foreground">
+            <CardHeader className="px-3 sm:px-6">
+              <CardTitle className="text-sm sm:text-base font-medium text-card-foreground">
                 Posts ({platformPosts.length})
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-0 sm:px-6">
               {platformPosts.length > 0 ? (
-                <PostsTable posts={platformPosts} onRowClick={handlePostClick} />
+                <div className="overflow-x-auto">
+                  <PostsTable posts={platformPosts} onRowClick={handlePostClick} />
+                </div>
               ) : (
                 <EmptyState
                   title="No posts yet"
@@ -397,8 +488,8 @@ export function PlatformPage({ platform }: PlatformPageProps) {
         </TabsContent>
 
         {/* Audience Tab */}
-        <TabsContent value="audience" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-3">
+        <TabsContent value="audience" className="space-y-4 sm:space-y-6">
+          <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
             <Card className="bg-card border-border">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Users className="h-12 w-12 text-muted-foreground" />

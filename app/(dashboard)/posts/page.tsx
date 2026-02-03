@@ -44,7 +44,7 @@ export default function PostsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const postsPerPage = 20
-  const { dateRange, selectedSource } = useFilters()
+  const { dateRange, selectedSources } = useFilters()
 
   useEffect(() => {
     async function loadPosts() {
@@ -53,19 +53,50 @@ export default function PostsPage() {
         const platform = platformFilter !== 'all' ? platformFilter : undefined
         const dateFrom = dateRange?.from ? dateRange.from.toISOString().split('T')[0] : undefined
         const dateTo = dateRange?.to ? dateRange.to.toISOString().split('T')[0] : undefined
-        const profileId = selectedSource !== 'all' ? parseInt(selectedSource) : undefined
+        const profileIds = selectedSources.length > 0 ? selectedSources.map(id => parseInt(id)) : undefined
         
-        const response = await getPosts({ 
-          platform, 
-          limit: 200,
-          date_from: dateFrom,
-          date_to: dateTo,
-          profile_id: profileId
-        })
-        console.log('Posts response:', { total: response.total, dataLength: response.data?.length })
-        const transformedPosts = response.data.map(apiPostToPost)
-        console.log('Transformed posts:', transformedPosts.length)
-        setPosts(transformedPosts)
+        // If multiple profiles selected, make multiple API calls and combine results
+        if (profileIds && profileIds.length > 0) {
+          const allResponses = await Promise.all(
+            profileIds.map(profileId => 
+              getPosts({ 
+                platform, 
+                limit: 200,
+                date_from: dateFrom,
+                date_to: dateTo,
+                profile_id: profileId
+              })
+            )
+          )
+          
+          // Combine all posts and remove duplicates by post_id
+          const allPostsData = allResponses.flatMap(response => response.data || [])
+          const uniquePosts = Array.from(
+            new Map(allPostsData.map(post => [post.post_id, post])).values()
+          )
+          
+          console.log('Posts response (combined):', { 
+            total: uniquePosts.length, 
+            dataLength: uniquePosts.length,
+            profiles: profileIds.length 
+          })
+          const transformedPosts = uniquePosts.map(apiPostToPost)
+          console.log('Transformed posts:', transformedPosts.length)
+          setPosts(transformedPosts)
+        } else {
+          // No profiles selected or all profiles
+          const response = await getPosts({ 
+            platform, 
+            limit: 200,
+            date_from: dateFrom,
+            date_to: dateTo,
+            profile_id: undefined
+          })
+          console.log('Posts response:', { total: response.total, dataLength: response.data?.length })
+          const transformedPosts = response.data.map(apiPostToPost)
+          console.log('Transformed posts:', transformedPosts.length)
+          setPosts(transformedPosts)
+        }
         setState('success')
       } catch (error) {
         console.error('Error loading posts:', error)
@@ -74,7 +105,7 @@ export default function PostsPage() {
     }
     loadPosts()
     setCurrentPage(1) // Reset to first page when filters change
-  }, [platformFilter, dateRange, selectedSource]) // Recargar cuando cambien los filtros
+  }, [platformFilter, dateRange, selectedSources]) // Recargar cuando cambien los filtros
 
   const filteredAndSortedPosts = useMemo(() => {
     let result = [...posts]
@@ -157,27 +188,27 @@ export default function PostsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-2xl font-semibold text-foreground">Publicaciones</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h1 className="text-xl sm:text-2xl font-semibold text-foreground">Publicaciones</h1>
+        <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
           Ver y analizar todas tus publicaciones en todas las plataformas
         </p>
       </div>
 
       {/* Filters */}
       <Card className="bg-card border-border">
-        <CardContent className="p-4">
-          <div className="flex flex-wrap items-center gap-4">
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
             {/* Search */}
-            <div className="relative flex-1 min-w-[200px]">
+            <div className="relative flex-1 w-full sm:min-w-[200px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Buscar publicaciones..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 bg-input"
+                className="pl-9 bg-input text-sm"
               />
             </div>
 
@@ -186,7 +217,7 @@ export default function PostsPage() {
               value={platformFilter}
               onValueChange={(value) => setPlatformFilter(value as Platform | 'all')}
             >
-              <SelectTrigger className="w-[150px] bg-secondary">
+              <SelectTrigger className="w-full sm:w-[150px] bg-secondary text-sm">
                 <SelectValue placeholder="Platform" />
               </SelectTrigger>
               <SelectContent>
@@ -202,7 +233,7 @@ export default function PostsPage() {
               value={sortKey}
               onValueChange={(value) => setSortKey(value as SortKey)}
             >
-              <SelectTrigger className="w-[150px] bg-secondary">
+              <SelectTrigger className="w-full sm:w-[150px] bg-secondary text-sm">
                 <SelectValue placeholder="Ordenar por" />
               </SelectTrigger>
               <SelectContent>
@@ -218,59 +249,59 @@ export default function PostsPage() {
 
       {/* Posts Table */}
       <Card className="bg-card border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium text-card-foreground">
+        <CardHeader className="pb-3 px-3 sm:px-6">
+          <CardTitle className="text-sm sm:text-base font-medium text-card-foreground">
             Todas las Publicaciones ({filteredAndSortedPosts.length})
           </CardTitle>
-          <CardDescription>
+          <CardDescription className="text-xs sm:text-sm">
             Mostrando {((currentPage - 1) * postsPerPage) + 1}-{Math.min(currentPage * postsPerPage, filteredAndSortedPosts.length)} de {filteredAndSortedPosts.length} publicaciones
           </CardDescription>
         </CardHeader>
-        <CardContent className="pt-0">
+        <CardContent className="pt-0 px-0 sm:px-6">
           {filteredAndSortedPosts.length > 0 ? (
             <>
-              <div className="rounded-lg border border-border">
+              <div className="rounded-lg border border-border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent">
-                      <TableHead className="text-muted-foreground">Post</TableHead>
-                      <TableHead className="text-muted-foreground">Platform</TableHead>
-                      <TableHead className="text-muted-foreground">
+                      <TableHead className="text-muted-foreground text-xs sm:text-sm min-w-[150px] sm:min-w-[200px]">Post</TableHead>
+                      <TableHead className="text-muted-foreground text-xs sm:text-sm min-w-[80px]">Platform</TableHead>
+                      <TableHead className="text-muted-foreground text-xs sm:text-sm min-w-[100px]">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleSort('date')}
-                          className="h-auto p-0 font-medium text-muted-foreground hover:text-foreground"
+                          className="h-auto p-0 font-medium text-muted-foreground hover:text-foreground text-xs sm:text-sm"
                         >
                           Fecha
                           <ArrowUpDown className="ml-1 h-3 w-3" />
                         </Button>
                       </TableHead>
-                      <TableHead className="text-right text-muted-foreground">
+                      <TableHead className="text-right text-muted-foreground text-xs sm:text-sm min-w-[80px]">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleSort('reach')}
-                          className="h-auto p-0 font-medium text-muted-foreground hover:text-foreground"
+                          className="h-auto p-0 font-medium text-muted-foreground hover:text-foreground text-xs sm:text-sm"
                         >
                           Alcance
                           <ArrowUpDown className="ml-1 h-3 w-3" />
                         </Button>
                       </TableHead>
-                      <TableHead className="text-right text-muted-foreground">
+                      <TableHead className="text-right text-muted-foreground text-xs sm:text-sm min-w-[100px]">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleSort('interactions')}
-                          className="h-auto p-0 font-medium text-muted-foreground hover:text-foreground"
+                          className="h-auto p-0 font-medium text-muted-foreground hover:text-foreground text-xs sm:text-sm"
                         >
                           Interacciones
                           <ArrowUpDown className="ml-1 h-3 w-3" />
                         </Button>
                       </TableHead>
-                      <TableHead className="text-right text-muted-foreground">Me Gusta</TableHead>
-                      <TableHead className="text-right text-muted-foreground">Comentarios</TableHead>
-                      <TableHead className="text-muted-foreground">Sentimiento</TableHead>
+                      <TableHead className="text-right text-muted-foreground text-xs sm:text-sm min-w-[80px]">Me Gusta</TableHead>
+                      <TableHead className="text-right text-muted-foreground text-xs sm:text-sm min-w-[100px]">Comentarios</TableHead>
+                      <TableHead className="text-muted-foreground text-xs sm:text-sm min-w-[100px]">Sentimiento</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -280,32 +311,32 @@ export default function PostsPage() {
                         className="border-border cursor-pointer hover:bg-muted/50"
                         onClick={() => handlePostClick(post)}
                       >
-                        <TableCell className="max-w-[200px]">
-                          <p className="truncate text-sm text-card-foreground">{post.caption}</p>
+                        <TableCell className="max-w-[150px] sm:max-w-[200px] min-w-[150px] sm:min-w-[200px]">
+                          <p className="truncate text-xs sm:text-sm text-card-foreground">{post.caption}</p>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="min-w-[80px]">
                           <PlatformBadge platform={post.platform} />
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="text-xs sm:text-sm text-muted-foreground min-w-[100px]">
                           {new Date(post.date).toLocaleDateString('es-ES', {
                             month: 'short',
                             day: 'numeric',
                             year: 'numeric',
                           })}
                         </TableCell>
-                        <TableCell className="text-right text-sm text-card-foreground">
+                        <TableCell className="text-right text-xs sm:text-sm text-card-foreground min-w-[80px]">
                           {new Intl.NumberFormat('es-ES', { notation: 'compact' }).format(post.reach)}
                         </TableCell>
-                        <TableCell className="text-right text-sm text-card-foreground">
+                        <TableCell className="text-right text-xs sm:text-sm text-card-foreground min-w-[100px]">
                           {new Intl.NumberFormat('es-ES', { notation: 'compact' }).format(post.interactions)}
                         </TableCell>
-                        <TableCell className="text-right text-sm text-card-foreground">
+                        <TableCell className="text-right text-xs sm:text-sm text-card-foreground min-w-[80px]">
                           {new Intl.NumberFormat('es-ES', { notation: 'compact' }).format(post.likes)}
                         </TableCell>
-                        <TableCell className="text-right text-sm text-card-foreground">
+                        <TableCell className="text-right text-xs sm:text-sm text-card-foreground min-w-[100px]">
                           {new Intl.NumberFormat('es-ES', { notation: 'compact' }).format(post.comments)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="min-w-[100px]">
                           <SentimentBadge sentiment={getSentimentLevel(post.sentimentScore)} />
                         </TableCell>
                       </TableRow>
@@ -314,16 +345,17 @@ export default function PostsPage() {
                 </Table>
               </div>
               {filteredAndSortedPosts.length > postsPerPage && (
-                <div className="mt-4 flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">
+                <div className="mt-4 px-3 sm:px-0 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <p className="text-xs sm:text-sm text-muted-foreground">
                     Página {currentPage} de {Math.ceil(filteredAndSortedPosts.length / postsPerPage)}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 w-full sm:w-auto">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
+                      className="flex-1 sm:flex-initial text-xs sm:text-sm"
                     >
                       Anterior
                     </Button>
@@ -332,6 +364,7 @@ export default function PostsPage() {
                       size="sm"
                       onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredAndSortedPosts.length / postsPerPage), p + 1))}
                       disabled={currentPage >= Math.ceil(filteredAndSortedPosts.length / postsPerPage)}
+                      className="flex-1 sm:flex-initial text-xs sm:text-sm"
                     >
                       Siguiente
                     </Button>
