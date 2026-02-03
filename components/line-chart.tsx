@@ -49,7 +49,7 @@ export function LineChart({
       {title && (
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base font-medium text-card-foreground">{title}</CardTitle>
+          <CardTitle className="text-base font-medium text-card-foreground">{title}</CardTitle>
             {infoTooltip && (
               <TooltipProvider>
                 <UITooltip>

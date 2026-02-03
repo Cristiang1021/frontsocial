@@ -43,6 +43,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Separator } from '@/components/ui/separator'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Plus,
   Facebook,
@@ -158,6 +159,7 @@ export default function SourcesPage() {
   const [isScraping, setIsScraping] = useState(false)
   const [scrapingProgress, setScrapingProgress] = useState<string>('')
   const [scrapingResults, setScrapingResults] = useState<any>(null)
+  const [selectedProfileIds, setSelectedProfileIds] = useState<Set<number>>(new Set())
 
   // Load profiles from API
   useEffect(() => {
@@ -167,6 +169,10 @@ export default function SourcesPage() {
         const profiles = await getProfiles()
         const sourcesData = profiles.map(profileToSource)
         setSources(sourcesData)
+        // Select all profiles by default on first load
+        if (sourcesData.length > 0) {
+          setSelectedProfileIds(new Set(sourcesData.map(s => parseInt(s.id))))
+        }
       } catch (error) {
         console.error('Error loading profiles:', error)
       } finally {
@@ -174,6 +180,7 @@ export default function SourcesPage() {
       }
     }
     loadProfiles()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Filter sources
@@ -289,10 +296,51 @@ export default function SourcesPage() {
     setDeleteModalOpen(true)
   }
 
+  // Handle profile selection
+  const toggleProfileSelection = (profileId: number) => {
+    const newSelection = new Set(selectedProfileIds)
+    if (newSelection.has(profileId)) {
+      newSelection.delete(profileId)
+    } else {
+      newSelection.add(profileId)
+    }
+    setSelectedProfileIds(newSelection)
+  }
+
+  // Select all profiles from a platform
+  const selectPlatformProfiles = (platform: Platform) => {
+    const platformProfiles = sources.filter(s => s.platform === platform)
+    const newSelection = new Set(selectedProfileIds)
+    platformProfiles.forEach(s => newSelection.add(parseInt(s.id)))
+    setSelectedProfileIds(newSelection)
+  }
+
+  // Deselect all profiles from a platform
+  const deselectPlatformProfiles = (platform: Platform) => {
+    const platformProfiles = sources.filter(s => s.platform === platform)
+    const newSelection = new Set(selectedProfileIds)
+    platformProfiles.forEach(s => newSelection.delete(parseInt(s.id)))
+    setSelectedProfileIds(newSelection)
+  }
+
+  // Select/Deselect all profiles
+  const toggleAllProfiles = () => {
+    if (selectedProfileIds.size === sources.length) {
+      setSelectedProfileIds(new Set())
+    } else {
+      setSelectedProfileIds(new Set(sources.map(s => parseInt(s.id))))
+    }
+  }
+
   // Handle Start Scraping
   const handleStartScraping = async () => {
     if (sources.length === 0) {
       alert('No hay perfiles para analizar. Agrega al menos un perfil primero.')
+      return
+    }
+
+    if (selectedProfileIds.size === 0) {
+      alert('Selecciona al menos un perfil para analizar.')
       return
     }
 
@@ -301,10 +349,21 @@ export default function SourcesPage() {
     setScrapingResults(null)
 
     try {
-      // Get all profile IDs
-      const profileIds = sources.map(s => parseInt(s.id))
+      // Get selected profile IDs
+      const profileIds = Array.from(selectedProfileIds)
       
-      setScrapingProgress(`Analizando ${profileIds.length} perfil(es)...`)
+      // Get selected profiles info for display
+      const selectedProfiles = sources.filter(s => selectedProfileIds.has(parseInt(s.id)))
+      const platformsCount = selectedProfiles.reduce((acc, s) => {
+        acc[s.platform] = (acc[s.platform] || 0) + 1
+        return acc
+      }, {} as Record<string, number>)
+      
+      const platformsInfo = Object.entries(platformsCount)
+        .map(([platform, count]) => `${count} ${platform}`)
+        .join(', ')
+      
+      setScrapingProgress(`Analizando ${profileIds.length} perfil(es): ${platformsInfo}...`)
       
       const results = await runAnalysis({
         profile_ids: profileIds,
@@ -312,12 +371,14 @@ export default function SourcesPage() {
       })
 
       setScrapingResults(results)
-      setScrapingProgress('¡Scraping completado!')
+      setScrapingProgress(`¡Scraping completado para ${profileIds.length} perfil(es)!`)
       
       // Reload profiles to update status
       const updatedProfiles = await getProfiles()
       const updatedSources = updatedProfiles.map(profileToSource)
       setSources(updatedSources)
+      // Keep selection after reload
+      setSelectedProfileIds(new Set(updatedSources.map(s => parseInt(s.id)).filter(id => selectedProfileIds.has(id))))
       
       // Show success message
       setTimeout(() => {
@@ -346,11 +407,63 @@ export default function SourcesPage() {
             </p>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {/* Selection Info and Controls */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm font-medium">
+                  Seleccionados: {selectedProfileIds.size} de {sources.length}
+                </Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleAllProfiles}
+                  className="h-7 text-xs"
+                >
+                  {selectedProfileIds.size === sources.length ? 'Deseleccionar todos' : 'Seleccionar todos'}
+                </Button>
+              </div>
+              
+              {/* Quick select by platform */}
+              <div className="flex items-center gap-1 flex-wrap">
+                <Label className="text-xs text-muted-foreground">Por plataforma:</Label>
+                {(['facebook', 'instagram', 'tiktok'] as Platform[]).map((platform) => {
+                  const Icon = platformIcons[platform]
+                  const platformProfiles = sources.filter(s => s.platform === platform)
+                  const selectedCount = platformProfiles.filter(s => selectedProfileIds.has(parseInt(s.id))).length
+                  const allSelected = platformProfiles.length > 0 && selectedCount === platformProfiles.length
+                  
+                  if (platformProfiles.length === 0) return null
+                  
+                  return (
+                    <Button
+                      key={platform}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (allSelected) {
+                          deselectPlatformProfiles(platform)
+                        } else {
+                          selectPlatformProfiles(platform)
+                        }
+                      }}
+                      className="h-7 gap-1 text-xs"
+                    >
+                      <Icon className="h-3 w-3" />
+                      <span className="capitalize">{platform}</span>
+                      <span className="text-muted-foreground">({selectedCount}/{platformProfiles.length})</span>
+                    </Button>
+                  )
+                })}
+              </div>
+            </div>
+            
             {/* Start Scraping Button */}
             <Button
               onClick={handleStartScraping}
-              disabled={isScraping || sources.length === 0}
+              disabled={isScraping || sources.length === 0 || selectedProfileIds.size === 0}
               variant={isScraping ? "secondary" : "default"}
             >
               {isScraping ? (
@@ -361,7 +474,7 @@ export default function SourcesPage() {
               ) : (
                 <>
                   <TrendingUp className="mr-2 h-4 w-4" />
-                  Iniciar Scraping
+                  Iniciar Scraping ({selectedProfileIds.size})
                 </>
               )}
             </Button>
@@ -623,6 +736,13 @@ export default function SourcesPage() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={selectedProfileIds.size === sources.length && sources.length > 0}
+                      onCheckedChange={toggleAllProfiles}
+                      aria-label="Seleccionar todos"
+                    />
+                  </TableHead>
                   <TableHead className="w-32">Plataforma</TableHead>
                   <TableHead className="w-24">Tipo</TableHead>
                   <TableHead>URL</TableHead>
@@ -634,7 +754,7 @@ export default function SourcesPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center">
+                    <TableCell colSpan={7} className="h-32 text-center">
                       <div className="flex items-center justify-center">
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
@@ -642,7 +762,7 @@ export default function SourcesPage() {
                   </TableRow>
                 ) : filteredSources.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-32 text-center">
+                    <TableCell colSpan={7} className="h-32 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <Link2 className="h-8 w-8 text-muted-foreground" />
                         <p className="text-muted-foreground">No se encontraron enlaces</p>
@@ -664,8 +784,18 @@ export default function SourcesPage() {
                     const statusInfo = statusConfig[source.status]
                     const StatusIcon = statusInfo.icon
                     
+                    const profileId = parseInt(source.id)
+                    const isSelected = selectedProfileIds.has(profileId)
+                    
                     return (
                       <TableRow key={source.id} className="group">
+                        <TableCell>
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleProfileSelection(profileId)}
+                            aria-label={`Seleccionar ${source.label || source.url}`}
+                          />
+                        </TableCell>
                         <TableCell>
                           <Badge className={`${platformColors[source.platform]} gap-1`}>
                             <PlatformIcon className="h-3 w-3" />
