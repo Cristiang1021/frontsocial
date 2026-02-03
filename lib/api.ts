@@ -5,10 +5,22 @@
 
 // Get base URL - use production URL by default, fallback to localhost for development
 const getBaseUrl = (): string => {
-  // Production backend URL
+  // ngrok URL (backend local con ngrok)
+  const NGROK_URL = 'https://www.backsocual.ngrok.app/api'
+  
+  // Production backend URL (Render)
   const PRODUCTION_URL = 'https://backsocial-83zt.onrender.com/api'
+  
   // Local development URL
   const LOCAL_URL = 'http://localhost:8000/api'
+  
+  // Si ngrok está configurado, usarlo en producción (Vercel)
+  if (NGROK_URL && typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname === '0.0.0.0'
+    return isLocalhost ? LOCAL_URL : NGROK_URL
+  }
   
   // Check if we're in development (localhost or 127.0.0.1)
   if (typeof window !== 'undefined') {
