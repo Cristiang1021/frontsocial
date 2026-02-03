@@ -67,7 +67,7 @@ import {
   Users,
   ChevronRight,
 } from 'lucide-react'
-import { getProfiles, createProfile, deleteProfile as deleteProfileAPI } from '@/lib/api'
+import { getProfiles, createProfile, deleteProfile as deleteProfileAPI, runAnalysis } from '@/lib/api'
 import { profileToSource } from '@/lib/adapters'
 import type { Source, Platform, LinkType, SourceStatus } from '@/types'
 
@@ -153,6 +153,11 @@ export default function SourcesPage() {
   // Delete Confirmation
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deletingSource, setDeletingSource] = useState<Source | null>(null)
+  
+  // Scraping State
+  const [isScraping, setIsScraping] = useState(false)
+  const [scrapingProgress, setScrapingProgress] = useState<string>('')
+  const [scrapingResults, setScrapingResults] = useState<any>(null)
 
   // Load profiles from API
   useEffect(() => {
@@ -284,6 +289,51 @@ export default function SourcesPage() {
     setDeleteModalOpen(true)
   }
 
+  // Handle Start Scraping
+  const handleStartScraping = async () => {
+    if (sources.length === 0) {
+      alert('No hay perfiles para analizar. Agrega al menos un perfil primero.')
+      return
+    }
+
+    setIsScraping(true)
+    setScrapingProgress('Iniciando scraping...')
+    setScrapingResults(null)
+
+    try {
+      // Get all profile IDs
+      const profileIds = sources.map(s => parseInt(s.id))
+      
+      setScrapingProgress(`Analizando ${profileIds.length} perfil(es)...`)
+      
+      const results = await runAnalysis({
+        profile_ids: profileIds,
+        force: false
+      })
+
+      setScrapingResults(results)
+      setScrapingProgress('¡Scraping completado!')
+      
+      // Reload profiles to update status
+      const updatedProfiles = await getProfiles()
+      const updatedSources = updatedProfiles.map(profileToSource)
+      setSources(updatedSources)
+      
+      // Show success message
+      setTimeout(() => {
+        setScrapingProgress('')
+        setIsScraping(false)
+      }, 3000)
+    } catch (error: any) {
+      console.error('Error during scraping:', error)
+      setScrapingProgress(`Error: ${error.message || 'Error desconocido'}`)
+      setTimeout(() => {
+        setScrapingProgress('')
+        setIsScraping(false)
+      }, 5000)
+    }
+  }
+
   return (
     <TooltipProvider>
       <div className="space-y-6">
@@ -296,14 +346,34 @@ export default function SourcesPage() {
             </p>
           </div>
           
-          {/* Add Link Button */}
-          <Dialog open={addModalOpen} onOpenChange={setAddModalOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Agregar Enlace
-              </Button>
-            </DialogTrigger>
+          <div className="flex gap-2">
+            {/* Start Scraping Button */}
+            <Button
+              onClick={handleStartScraping}
+              disabled={isScraping || sources.length === 0}
+              variant={isScraping ? "secondary" : "default"}
+            >
+              {isScraping ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  Iniciar Scraping
+                </>
+              )}
+            </Button>
+            
+            {/* Add Link Button */}
+            <Dialog open={addModalOpen} onOpenChange={setAddModalOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Agregar Enlace
+                </Button>
+              </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>Add New Link</DialogTitle>
@@ -430,7 +500,56 @@ export default function SourcesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
+
+        {/* Scraping Progress/Results */}
+        {(isScraping || scrapingProgress || scrapingResults) && (
+          <Card className="bg-card border-border">
+            <CardContent className="p-4">
+              {isScraping && scrapingProgress && (
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <p className="text-sm font-medium">{scrapingProgress}</p>
+                </div>
+              )}
+              {!isScraping && scrapingProgress && (
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-success" />
+                  <p className="text-sm font-medium text-success">{scrapingProgress}</p>
+                </div>
+              )}
+              {scrapingResults && !isScraping && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Resultados del Scraping:</p>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {Object.entries(scrapingResults).map(([profileId, result]: [string, any]) => {
+                      if (result.error) {
+                        return (
+                          <div key={profileId} className="text-destructive">
+                            Perfil {profileId}: Error - {result.error}
+                          </div>
+                        )
+                      }
+                      if (result.skipped) {
+                        return (
+                          <div key={profileId} className="text-muted-foreground">
+                            Perfil {profileId}: Omitido - {result.reason || 'Ya analizado recientemente'}
+                          </div>
+                        )
+                      }
+                      return (
+                        <div key={profileId}>
+                          Perfil {profileId}: {result.posts_scraped || 0} posts, {result.comments_scraped || 0} comentarios
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters */}
         <Card className="bg-card border-border">
