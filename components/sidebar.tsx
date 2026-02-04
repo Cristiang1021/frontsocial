@@ -14,6 +14,7 @@ import {
   Settings,
   ChevronLeft,
   Link2,
+  Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
@@ -27,6 +28,7 @@ const navigation = [
   { name: 'Publicaciones', href: '/posts', icon: FileText },
   { name: 'Comentarios y Sentimiento', href: '/comments-sentiment', icon: MessageSquare },
   { name: 'Reportes', href: '/reports', icon: BarChart3 },
+  { name: 'Exportar Datos', href: '/export', icon: Download },
   { name: 'Configuración', href: '/settings', icon: Settings },
 ]
 

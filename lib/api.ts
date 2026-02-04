@@ -588,3 +588,53 @@ export async function processAllComments(
     { method: 'POST' }
   )
 }
+
+// ==================== CSV EXPORT ====================
+
+export interface ExportFilters {
+  profileIds?: number[]
+  platform?: string
+  sentiment?: string
+  dateFrom?: string
+  dateTo?: string
+}
+
+export async function downloadCommentsCSV(filters: ExportFilters): Promise<void> {
+  const params = new URLSearchParams()
+  if (filters.profileIds && filters.profileIds.length > 0) {
+    filters.profileIds.forEach(id => params.append('profile_id', id.toString()))
+  }
+  if (filters.platform) params.append('platform', filters.platform)
+  if (filters.sentiment) params.append('sentiment', filters.sentiment)
+  if (filters.dateFrom) params.append('date_from', filters.dateFrom)
+  if (filters.dateTo) params.append('date_to', filters.dateTo)
+  
+  const url = `${getBaseUrl()}/export/comments?${params.toString()}`
+  window.open(url, '_blank')
+}
+
+export async function downloadPostsCSV(filters: ExportFilters): Promise<void> {
+  const params = new URLSearchParams()
+  if (filters.profileIds && filters.profileIds.length > 0) {
+    filters.profileIds.forEach(id => params.append('profile_id', id.toString()))
+  }
+  if (filters.platform) params.append('platform', filters.platform)
+  if (filters.dateFrom) params.append('date_from', filters.dateFrom)
+  if (filters.dateTo) params.append('date_to', filters.dateTo)
+  
+  const url = `${getBaseUrl()}/export/posts?${params.toString()}`
+  window.open(url, '_blank')
+}
+
+export async function downloadInteractionsCSV(filters: ExportFilters): Promise<void> {
+  const params = new URLSearchParams()
+  if (filters.profileIds && filters.profileIds.length > 0) {
+    filters.profileIds.forEach(id => params.append('profile_id', id.toString()))
+  }
+  if (filters.platform) params.append('platform', filters.platform)
+  if (filters.dateFrom) params.append('date_from', filters.dateFrom)
+  if (filters.dateTo) params.append('date_to', filters.dateTo)
+  
+  const url = `${getBaseUrl()}/export/interactions?${params.toString()}`
+  window.open(url, '_blank')
+}
