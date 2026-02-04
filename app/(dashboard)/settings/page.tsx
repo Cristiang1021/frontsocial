@@ -17,7 +17,7 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Link2, ExternalLink, Key, Brain, Hash, Settings as SettingsIcon, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
-import { getConfig, updateApifyToken, getApifyUsage, updateDateFrom, updateDateTo, updateLastDays } from '@/lib/api'
+import { getConfig, updateApifyToken, getApifyUsage, updateDateFrom, updateDateTo, updateLastDays, updateLimitPosts, updateLimitComments } from '@/lib/api'
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<any>(null)
@@ -29,6 +29,8 @@ export default function SettingsPage() {
   const [dateFrom, setDateFrom] = useState<string>('')
   const [dateTo, setDateTo] = useState<string>('')
   const [useLastDays, setUseLastDays] = useState<boolean>(true) // true = usar últimos N días, false = usar fechas específicas
+  const [limitPosts, setLimitPosts] = useState<number>(50)
+  const [limitComments, setLimitComments] = useState<number>(200)
 
   useEffect(() => {
     async function loadConfig() {
@@ -49,6 +51,8 @@ export default function SettingsPage() {
         setLastDays(lastDaysValue)
         setDateFrom(dateFromValue)
         setDateTo(dateToValue)
+        setLimitPosts(configData.default_limit_posts ?? 50)
+        setLimitComments(configData.default_limit_comments ?? 200)
         
         // Determine which mode is active: if last_days > 0, use "last days" mode, otherwise use "specific dates" mode
         setUseLastDays(lastDaysValue > 0 && !dateFromValue && !dateToValue)
@@ -132,6 +136,38 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error updating date to:', error)
       setMessage({ type: 'error', text: 'Error al actualizar fecha hasta' })
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
+
+  const handleSaveLimitPosts = async () => {
+    try {
+      const value = Math.max(1, Math.min(500, Number(limitPosts)))
+      await updateLimitPosts(value)
+      setLimitPosts(value)
+      setMessage({ type: 'success', text: 'Límite de publicaciones guardado' })
+      const configData = await getConfig()
+      setConfig(configData)
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error) {
+      console.error('Error updating limit posts:', error)
+      setMessage({ type: 'error', text: 'Error al guardar límite de publicaciones' })
+      setTimeout(() => setMessage(null), 3000)
+    }
+  }
+
+  const handleSaveLimitComments = async () => {
+    try {
+      const value = Math.max(1, Math.min(1000, Number(limitComments)))
+      await updateLimitComments(value)
+      setLimitComments(value)
+      setMessage({ type: 'success', text: 'Límite de comentarios guardado' })
+      const configData = await getConfig()
+      setConfig(configData)
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error) {
+      console.error('Error updating limit comments:', error)
+      setMessage({ type: 'error', text: 'Error al guardar límite de comentarios' })
       setTimeout(() => setMessage(null), 3000)
     }
   }
@@ -376,32 +412,42 @@ export default function SettingsPage() {
                 Límites por Defecto
               </CardTitle>
               <CardDescription>
-                Configura los límites por defecto para scraping
+                Máximo de publicaciones por perfil y de comentarios por publicación al analizar. Ajusta según tu cuota de Apify.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {config && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Límite de Publicaciones</Label>
-                    <Input
-                      type="number"
-                      value={config.default_limit_posts || 50}
-                      readOnly
-                      className="bg-muted"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Límite de Comentarios</Label>
-                    <Input
-                      type="number"
-                      value={config.default_limit_comments || 200}
-                      readOnly
-                      className="bg-muted"
-                    />
-                  </div>
-                </>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="limit-posts">Máximo de publicaciones por perfil</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="limit-posts"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={limitPosts}
+                    onChange={(e) => setLimitPosts(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+                    className="bg-input max-w-[140px]"
+                  />
+                  <Button onClick={handleSaveLimitPosts}>Guardar</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Entre 1 y 500. Se aplica al analizar cada perfil.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="limit-comments">Máximo de comentarios por publicación</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="limit-comments"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={limitComments}
+                    onChange={(e) => setLimitComments(Math.max(1, Math.min(1000, Number(e.target.value) || 1)))}
+                    className="bg-input max-w-[140px]"
+                  />
+                  <Button onClick={handleSaveLimitComments}>Guardar</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Entre 1 y 1000. Más comentarios consumen más cuota de Apify.</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

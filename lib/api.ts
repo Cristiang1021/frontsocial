@@ -462,6 +462,20 @@ export async function updateLastDays(lastDays: number): Promise<void> {
   })
 }
 
+export async function updateLimitPosts(limit: number): Promise<void> {
+  await apiCall('/config/limit-posts', {
+    method: 'POST',
+    body: JSON.stringify({ default_limit_posts: limit }),
+  })
+}
+
+export async function updateLimitComments(limit: number): Promise<void> {
+  await apiCall('/config/limit-comments', {
+    method: 'POST',
+    body: JSON.stringify({ default_limit_comments: limit }),
+  })
+}
+
 // ==================== APIFY USAGE ====================
 
 export interface ApifyUsage {
