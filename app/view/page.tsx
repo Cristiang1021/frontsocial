@@ -41,6 +41,11 @@ function ViewPageContent() {
   } | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Get filters from URL params (optional)
+  const dateFrom = searchParams.get('from') || undefined
+  const dateTo = searchParams.get('to') || undefined
+  const profileId = searchParams.get('profile') ? parseInt(searchParams.get('profile')!) : undefined
+
   // Check authentication
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -49,22 +54,6 @@ function ViewPageContent() {
       setIsAuth(true)
     }
   }, [router])
-
-  // Get filters from URL params (optional)
-  const dateFrom = searchParams.get('from') || undefined
-  const dateTo = searchParams.get('to') || undefined
-  const profileId = searchParams.get('profile') ? parseInt(searchParams.get('profile')!) : undefined
-
-  // Don't render content until authenticated
-  if (isAuth === null || !isAuth) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-muted-foreground">Verificando acceso...</p>
-        </div>
-      </div>
-    )
-  }
 
   const handleShare = () => {
     const currentUrl = window.location.href
@@ -78,6 +67,10 @@ function ViewPageContent() {
   }
 
   useEffect(() => {
+    // Don't load data if not authenticated
+    if (isAuth === null || !isAuth) {
+      return
+    }
     async function loadData() {
       try {
         setState('loading')
@@ -132,7 +125,18 @@ function ViewPageContent() {
     }
 
     loadData()
-  }, [dateFrom, dateTo, profileId])
+  }, [isAuth, dateFrom, dateTo, profileId])
+
+  // Don't render content until authenticated
+  if (isAuth === null || !isAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-muted-foreground">Verificando acceso...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (state === 'loading') {
     return (

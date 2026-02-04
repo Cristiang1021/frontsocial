@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { KPICard, KPICardSkeleton } from '@/components/kpi-card'
 import { PlatformCard } from '@/components/platform-card'
@@ -9,7 +9,7 @@ import { LineChart } from '@/components/line-chart'
 import { BarChart } from '@/components/bar-chart'
 import { DonutChart } from '@/components/donut-chart'
 import { ChartSkeleton, TableSkeleton, ErrorState, EmptyState } from '@/components/states'
-import { getOverviewStats, getPosts, getSentimentStats } from '@/lib/api'
+import { getOverviewStats, getPosts, getSentimentStats, getMostRepeatedComments, getTopComplaints, processAllComments, type MostRepeatedComment, type TopComplaint } from '@/lib/api'
 import {
   overviewStatsToKPIs,
   overviewStatsToPlatformMetrics,
@@ -18,11 +18,13 @@ import {
   sentimentStatsToDistribution
 } from '@/lib/adapters'
 import { useFilters } from '@/contexts/filters-context'
-import { TrendingUp, TrendingDown, AlertCircle, CheckCircle2, BarChart3, Users, Clock, Target, Share2, Check } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertCircle, CheckCircle2, BarChart3, Users, Clock, Target, Share2, Check, Download } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { ViewState, Post, PlatformMetrics, KPIData, MetricPoint } from '@/types'
 import { toast } from 'sonner'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 
 export default function OverviewPage() {
   const [state, setState] = useState<ViewState>('loading')
@@ -34,9 +36,14 @@ export default function OverviewPage() {
   const [topDays, setTopDays] = useState<Array<{ date: string; reach: number }>>([])
   const [sentimentStats, setSentimentStats] = useState<any>(null)
   const [sentimentByPlatform, setSentimentByPlatform] = useState<Record<string, any>>({})
+  const [mostRepeatedComments, setMostRepeatedComments] = useState<MostRepeatedComment[]>([])
+  const [topComplaints, setTopComplaints] = useState<TopComplaint[]>([])
+  const [loadingComplaints, setLoadingComplaints] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const postsPerPage = 10
   const [copied, setCopied] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const dashboardRef = useRef<HTMLDivElement>(null)
   const { dateRange, selectedSources } = useFilters()
 
   const handleShareView = () => {
@@ -61,6 +68,176 @@ export default function OverviewPage() {
     }).catch(() => {
       toast.error('Error al copiar el link')
     })
+  }
+
+  const handleExportDashboard = async () => {
+    if (!dashboardRef.current) {
+      toast.error('No se pudo capturar el dashboard')
+      return
+    }
+
+    setIsExporting(true)
+    toast.loading('Generando PDF del dashboard...', { id: 'export-pdf' })
+
+    try {
+      // Esperar un momento para asegurar que todo esté renderizado
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      if (!dashboardRef.current) {
+        throw new Error('No se pudo acceder al dashboard')
+      }
+
+      // Inyectar un estilo CSS global que fuerce todos los colores a RGB antes de capturar
+      // Esto es necesario porque html2canvas parsea los colores antes de que podamos convertirlos
+      const styleId = 'html2canvas-force-rgb'
+      let forceStyle = document.getElementById(styleId) as HTMLStyleElement
+      if (!forceStyle) {
+        forceStyle = document.createElement('style')
+        forceStyle.id = styleId
+        document.head.appendChild(forceStyle)
+      }
+      
+      // Forzar TODOS los colores a RGB válidos usando !important
+      // Esto sobrescribe cualquier color oklch()/lab() que pueda estar en variables CSS
+      forceStyle.textContent = `
+        :root {
+          --background: rgb(255, 255, 255) !important;
+          --foreground: rgb(0, 0, 0) !important;
+          --card: rgb(255, 255, 255) !important;
+          --card-foreground: rgb(0, 0, 0) !important;
+          --popover: rgb(255, 255, 255) !important;
+          --popover-foreground: rgb(0, 0, 0) !important;
+          --primary: rgb(59, 130, 246) !important;
+          --primary-foreground: rgb(255, 255, 255) !important;
+          --secondary: rgb(245, 245, 245) !important;
+          --secondary-foreground: rgb(0, 0, 0) !important;
+          --muted: rgb(245, 245, 245) !important;
+          --muted-foreground: rgb(107, 114, 128) !important;
+          --accent: rgb(245, 245, 245) !important;
+          --accent-foreground: rgb(0, 0, 0) !important;
+          --destructive: rgb(239, 68, 68) !important;
+          --destructive-foreground: rgb(255, 255, 255) !important;
+          --border: rgb(229, 231, 235) !important;
+          --input: rgb(229, 231, 235) !important;
+          --ring: rgb(59, 130, 246) !important;
+        }
+        * {
+          color: rgb(0, 0, 0) !important;
+          background-color: rgb(255, 255, 255) !important;
+          border-color: rgb(229, 231, 235) !important;
+          fill: rgb(0, 0, 0) !important;
+          stroke: rgb(229, 231, 235) !important;
+        }
+        [class*="bg-"] {
+          background-color: rgb(255, 255, 255) !important;
+        }
+        [class*="text-"] {
+          color: rgb(0, 0, 0) !important;
+        }
+        [class*="border-"] {
+          border-color: rgb(229, 231, 235) !important;
+        }
+        svg, svg * {
+          fill: rgb(0, 0, 0) !important;
+          stroke: rgb(229, 231, 235) !important;
+        }
+      `
+      
+      // Esperar más tiempo para que los estilos se apliquen completamente
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Capturar el dashboard como imagen con opciones que eviten parsear colores lab()
+      const canvas = await html2canvas(dashboardRef.current, {
+        scale: 1.5, // Calidad balanceada
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: dashboardRef.current.scrollWidth,
+        windowHeight: dashboardRef.current.scrollHeight,
+        allowTaint: true,
+        removeContainer: false,
+        imageTimeout: 15000,
+        foreignObjectRendering: false,
+        // Ignorar errores de parseo de colores
+        onclone: (clonedDoc) => {
+          // Intentar convertir cualquier color lab() restante en el documento clonado
+          try {
+            const allElements = clonedDoc.querySelectorAll('*')
+            allElements.forEach((el: Element) => {
+              const htmlEl = el as HTMLElement
+              // Forzar estilos inline para evitar parseo de colores lab()
+              if (!htmlEl.style.color || htmlEl.style.color.includes('lab')) {
+                htmlEl.style.color = 'rgb(0, 0, 0)'
+              }
+              if (!htmlEl.style.backgroundColor || htmlEl.style.backgroundColor.includes('lab')) {
+                htmlEl.style.backgroundColor = 'rgb(255, 255, 255)'
+              }
+              if (!htmlEl.style.borderColor || htmlEl.style.borderColor.includes('lab')) {
+                htmlEl.style.borderColor = 'rgb(229, 231, 235)'
+              }
+            })
+          } catch (e) {
+            // Ignorar errores
+          }
+        }
+      })
+
+      const imgData = canvas.toDataURL('image/png', 0.95)
+      
+      // Calcular dimensiones del PDF (A4 landscape)
+      const pdfWidth = 297 // mm (A4 landscape width)
+      const pdfHeight = 210 // mm (A4 landscape height)
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      const ratio = Math.min(pdfWidth / (imgWidth * 0.264583), pdfHeight / (imgHeight * 0.264583)) // Convert px to mm
+      const finalWidth = imgWidth * 0.264583 * ratio
+      const finalHeight = imgHeight * 0.264583 * ratio
+
+      // Crear PDF
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      })
+
+      // Agregar imagen al PDF
+      pdf.addImage(imgData, 'PNG', 0, 0, finalWidth, finalHeight)
+
+      // Generar nombre del archivo
+      const dateStr = new Date().toISOString().split('T')[0]
+      const filename = `dashboard-overview-${dateStr}.pdf`
+
+      // Descargar PDF
+      pdf.save(filename)
+      
+      // Remover el estilo forzado después de la captura
+      const forceStyleToRemove = document.getElementById('html2canvas-force-rgb')
+      if (forceStyleToRemove) {
+        forceStyleToRemove.remove()
+      }
+      
+      toast.success('Dashboard exportado como PDF', { id: 'export-pdf' })
+    } catch (error) {
+      console.error('Error exportando dashboard:', error)
+      
+      // Asegurar que se remueva el estilo forzado incluso si hay error
+      const forceStyleToRemove = document.getElementById('html2canvas-force-rgb')
+      if (forceStyleToRemove) {
+        forceStyleToRemove.remove()
+      }
+      
+      // Si el error es por colores lab(), sugerir una solución alternativa
+      if (error instanceof Error && error.message.includes('lab')) {
+        toast.error(
+          'Error con colores modernos. Usa el botón "Generar Reporte" en la página de Reportes para obtener un PDF profesional.',
+          { id: 'export-pdf', duration: 6000 }
+        )
+      } else {
+        toast.error('Error al exportar el dashboard. Intenta de nuevo o usa el reporte PDF desde la página de Reportes.', { id: 'export-pdf', duration: 5000 })
+      }
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   useEffect(() => {
@@ -232,6 +409,64 @@ export default function OverviewPage() {
             negative: distribution.negative
           })
 
+          // Load most repeated comments (for multiple profiles - combine all)
+          try {
+            const repeatedComments = await getMostRepeatedComments(undefined, undefined, 5)
+            setMostRepeatedComments(repeatedComments.data || [])
+          } catch (error) {
+            console.error('Error loading most repeated comments:', error)
+            setMostRepeatedComments([])
+          }
+
+          // Load top complaints by topic - combine for all selected profiles
+          setLoadingComplaints(true)
+          try {
+            // Get complaints for each profile and combine
+            const allComplaintsPromises = profileIds.map(profileId => 
+              getTopComplaints(profileId, undefined, 10).catch(() => ({ data: [], total: 0 }))
+            )
+            const allComplaintsResults = await Promise.all(allComplaintsPromises)
+            
+            // Combine complaints by topic
+            const topicMap = new Map<string, { topic: string; count: number; keywords: string[] }>()
+            
+            for (const result of allComplaintsResults) {
+              for (const complaint of result.data || []) {
+                const existing = topicMap.get(complaint.topic)
+                if (existing) {
+                  existing.count += complaint.count
+                  // Merge keywords, keeping unique ones
+                  const allKeywords = [...existing.keywords, ...complaint.keywords]
+                  const uniqueKeywords = Array.from(new Set(allKeywords))
+                  existing.keywords = uniqueKeywords.slice(0, 5) // Top 5 keywords
+                } else {
+                  topicMap.set(complaint.topic, {
+                    topic: complaint.topic,
+                    count: complaint.count,
+                    keywords: complaint.keywords || []
+                  })
+                }
+              }
+            }
+            
+            // Convert to array and sort by count
+            const combinedComplaints = Array.from(topicMap.values())
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 5)
+            
+            console.log('Top complaints loaded (combined for multiple profiles):', {
+              total: combinedComplaints.length,
+              topics: combinedComplaints.map(c => c.topic),
+              profileIds: profileIds
+            })
+            setTopComplaints(combinedComplaints)
+          } catch (error) {
+            console.error('Error loading top complaints:', error)
+            setTopComplaints([])
+          } finally {
+            setLoadingComplaints(false)
+          }
+
           setState('success')
           return
         }
@@ -249,7 +484,10 @@ export default function OverviewPage() {
         console.log('Overview data loaded:', {
           statsTotal: statsResponse.total_interactions,
           postsCount: postsResponse.data?.length || 0,
-          platforms: statsResponse.platforms?.length || 0
+          platforms: statsResponse.platforms?.length || 0,
+          sentimentTotal: sentimentResponse.total,
+          sentimentPositive: sentimentResponse.positive,
+          sentimentNegative: sentimentResponse.negative
         })
 
         // Transform data using adapters
@@ -310,6 +548,35 @@ export default function OverviewPage() {
           neutral: distribution.neutral,
           negative: distribution.negative
         })
+
+        // Load most repeated comments
+        try {
+          const profileId = selectedSources.length === 1 ? parseInt(selectedSources[0]) : undefined
+          const repeatedComments = await getMostRepeatedComments(profileId, undefined, 5)
+          setMostRepeatedComments(repeatedComments.data || [])
+        } catch (error) {
+          console.error('Error loading most repeated comments:', error)
+          setMostRepeatedComments([])
+        }
+
+        // Load top complaints by topic - for single profile or all profiles
+        setLoadingComplaints(true)
+        try {
+          const profileId = selectedSources.length === 1 ? parseInt(selectedSources[0]) : undefined
+          console.log('Loading top complaints for profileId:', profileId)
+          const complaints = await getTopComplaints(profileId, undefined, 5)
+          console.log('Top complaints loaded:', {
+            total: complaints.total,
+            count: complaints.data?.length || 0,
+            topics: complaints.data?.map(c => c.topic) || []
+          })
+          setTopComplaints(complaints.data || [])
+        } catch (error) {
+          console.error('Error loading top complaints:', error)
+          setTopComplaints([])
+        } finally {
+          setLoadingComplaints(false)
+        }
 
         setState('success')
       } catch (error) {
@@ -421,7 +688,7 @@ export default function OverviewPage() {
   }).sort((a, b) => b.value - a.value) // Ordenar por valor descendente
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6" ref={dashboardRef}>
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div>
@@ -435,26 +702,44 @@ export default function OverviewPage() {
             )}
           </p>
         </div>
-        <Button
-          onClick={handleShareView}
-          variant="outline"
-          className="gap-2 w-full sm:w-auto text-xs sm:text-sm"
-          size="sm"
-        >
-          {copied ? (
-            <>
-              <Check className="h-4 w-4" />
-              <span className="hidden sm:inline">¡Copiado!</span>
-              <span className="sm:hidden">Copiado</span>
-            </>
-          ) : (
-            <>
-              <Share2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Compartir Vista Pública</span>
-              <span className="sm:hidden">Compartir</span>
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button
+            onClick={handleExportDashboard}
+            style={{ display: 'none' }}
+            variant="outline"
+            className="gap-2 w-full sm:w-auto text-xs sm:text-sm"
+            size="sm"
+            disabled={isExporting}
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">
+              {isExporting ? 'Exportando...' : 'Exportar PDF'}
+            </span>
+            <span className="sm:hidden">
+              {isExporting ? '...' : 'PDF'}
+            </span>
+          </Button>
+          <Button
+            onClick={handleShareView}
+            variant="outline"
+            className="gap-2 w-full sm:w-auto text-xs sm:text-sm"
+            size="sm"
+          >
+            {copied ? (
+              <>
+                <Check className="h-4 w-4" />
+                <span className="hidden sm:inline">¡Copiado!</span>
+                <span className="sm:hidden">Copiado</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Compartir Vista Pública</span>
+                <span className="sm:hidden">Compartir</span>
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Key Insights */}
@@ -542,6 +827,165 @@ export default function OverviewPage() {
             <PlatformCard key={platform.platform} data={platform} />
           ))}
         </div>
+      </div>
+
+      {/* TOP 5 RECLAMOS Section */}
+      <div>
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <h2 className="text-base sm:text-lg font-medium text-foreground">TOP 5 RECLAMOS</h2>
+          <Button
+            onClick={async () => {
+              try {
+                const profileId = selectedSources.length === 1 ? parseInt(selectedSources[0]) : undefined
+                await processAllComments(profileId, undefined)
+                toast.success('Comentarios procesados. Recargando datos...')
+                // Recargar datos
+                setTimeout(() => window.location.reload(), 1000)
+              } catch (error) {
+                console.error('Error procesando comentarios:', error)
+                toast.error('Error al procesar comentarios')
+              }
+            }}
+            variant="outline"
+            size="sm"
+            className="text-xs"
+          >
+            Procesar Comentarios Existentes
+          </Button>
+        </div>
+        {(topComplaints.length > 0 || mostRepeatedComments.length > 0) && (
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="text-base font-medium text-card-foreground">
+                Comentarios Más Repetidos
+              </CardTitle>
+              <CardDescription>
+                Los temas más recurrentes en los comentarios de los ciudadanos
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Top Complaints by Topic */}
+                {topComplaints.length > 0 && topComplaints.map((complaint, index) => (
+                  <div
+                    key={`topic-${index}`}
+                    className="rounded-lg border border-border bg-secondary/50 p-4 space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {index + 1}
+                          </span>
+                          <h3 className="text-base font-semibold text-foreground">
+                            {complaint.topic}
+                          </h3>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <span className="text-xs text-muted-foreground">Palabras clave:</span>
+                          {complaint.keywords.map((keyword, wordIdx) => (
+                            <Badge
+                              key={wordIdx}
+                              variant="outline"
+                              className="text-xs"
+                            >
+                              {keyword}
+                            </Badge>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {complaint.count} comentario{complaint.count !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Most Repeated Comments (fallback if no topics) */}
+                {topComplaints.length === 0 && mostRepeatedComments.map((comment, index) => {
+                  // Extraer palabras clave del comentario (primeras palabras significativas)
+                  const words = comment.text
+                    .toLowerCase()
+                    .replace(/[^\w\s]/g, '')
+                    .split(/\s+/)
+                    .filter(w => w.length > 3)
+                    .slice(0, 5)
+                  
+                  const sentimentColor = comment.most_common_sentiment === 'POSITIVE' 
+                    ? 'text-success' 
+                    : comment.most_common_sentiment === 'NEGATIVE'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'
+                  
+                  return (
+                    <div
+                      key={index}
+                      className="rounded-lg border border-border bg-secondary/50 p-4 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                              {index + 1}
+                            </span>
+                            <p className="text-sm font-medium text-foreground line-clamp-2">
+                              {comment.text}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            {words.map((word, wordIdx) => (
+                              <Badge
+                                key={wordIdx}
+                                variant="outline"
+                                className="text-xs"
+                              >
+                                {word}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 text-right">
+                          <Badge variant="outline" className={sentimentColor}>
+                            {comment.count}x
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">
+                            {comment.total_likes} likes
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+                {topComplaints.length === 0 && mostRepeatedComments.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No hay comentarios analizados aún. Haz clic en "Procesar Comentarios Existentes" para analizar los comentarios que ya están en la base de datos.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {loadingComplaints && (
+          <Card className="bg-card border-border">
+            <CardContent className="py-8">
+              <div className="flex flex-col items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-4" />
+                <p className="text-sm text-muted-foreground text-center">
+                  Analizando comentarios y agrupando por temas...
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {!loadingComplaints && topComplaints.length === 0 && mostRepeatedComments.length === 0 && (
+          <Card className="bg-card border-border">
+            <CardContent className="py-8">
+              <p className="text-sm text-muted-foreground text-center">
+                No hay comentarios analizados aún. Haz clic en "Procesar Comentarios Existentes" para analizar los comentarios que ya están en la base de datos.
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Sentiment Analysis Section */}

@@ -98,6 +98,11 @@ async function apiCall<T>(
     
     // Handle different response formats
     if (typeof data === 'object' && data !== null) {
+      // For TopComplaintsResponse and similar structured responses, return the whole object
+      if ('data' in data && 'total' in data) {
+        // This is a structured response like TopComplaintsResponse, return as-is
+        return data as T
+      }
       if ('data' in data) {
         const responseData = (data as ApiResponse<T>).data
         // Ensure data is always an array for array responses
@@ -473,4 +478,113 @@ export async function getApifyUsage(): Promise<ApifyUsage> {
 
 export async function healthCheck(): Promise<{ status: string; timestamp: string }> {
   return apiCall('/health')
+}
+
+// ==================== MOST REPEATED COMMENTS ====================
+
+export interface MostRepeatedComment {
+  text: string
+  count: number
+  total_likes: number
+  avg_likes: number
+  most_common_sentiment: string | null
+  platforms: Record<string, number>
+  first_seen: string | null
+  last_seen: string | null
+  profile_name: string
+}
+
+export interface MostRepeatedCommentsResponse {
+  data: MostRepeatedComment[]
+  total: number
+}
+
+export async function getMostRepeatedComments(
+  profileId?: number,
+  platform?: string,
+  limit: number = 10
+): Promise<MostRepeatedCommentsResponse> {
+  const params = new URLSearchParams()
+  if (profileId) params.append('profile_id', profileId.toString())
+  if (platform) params.append('platform', platform)
+  params.append('limit', limit.toString())
+  
+  return apiCall<MostRepeatedCommentsResponse>(`/comments/most-repeated?${params.toString()}`)
+}
+
+// ==================== PDF REPORT ====================
+
+export async function downloadPDFReport(
+  profileId?: number,
+  profileIds?: number[],
+  platform?: string,
+  days: number = 7
+): Promise<Blob> {
+  const params = new URLSearchParams()
+  
+  // Si hay múltiples profileIds, usar profile_ids
+  if (profileIds && profileIds.length > 0) {
+    params.append('profile_ids', profileIds.join(','))
+  } else if (profileId) {
+    params.append('profile_id', profileId.toString())
+  }
+  
+  if (platform) params.append('platform', platform)
+  params.append('days', days.toString())
+  
+  const url = `${API_BASE_URL}/report/pdf?${params.toString()}`
+  const response = await fetch(url)
+  
+  if (!response.ok) {
+    throw new Error(`Error descargando PDF: ${response.statusText}`)
+  }
+  
+  return response.blob()
+}
+
+// ==================== TOP COMPLAINTS BY TOPIC ====================
+
+export interface TopComplaint {
+  topic: string
+  count: number
+  keywords: string[]
+  comments?: Array<{
+    text: string
+    id?: number
+    likes?: number
+    sentiment_label?: string
+    platform?: string
+  }>
+}
+
+export interface TopComplaintsResponse {
+  data: TopComplaint[]
+  total: number
+}
+
+export async function getTopComplaints(
+  profileId?: number,
+  platform?: string,
+  limit: number = 5
+): Promise<TopComplaintsResponse> {
+  const params = new URLSearchParams()
+  if (profileId) params.append('profile_id', profileId.toString())
+  if (platform) params.append('platform', platform)
+  params.append('limit', limit.toString())
+  
+  return apiCall<TopComplaintsResponse>(`/comments/top-complaints?${params.toString()}`)
+}
+
+export async function processAllComments(
+  profileId?: number,
+  platform?: string
+): Promise<{ success: boolean; message: string; total_comments: number }> {
+  const params = new URLSearchParams()
+  if (profileId) params.append('profile_id', profileId.toString())
+  if (platform) params.append('platform', platform)
+  
+  return apiCall<{ success: boolean; message: string; total_comments: number }>(
+    `/comments/process-all?${params.toString()}`,
+    { method: 'POST' }
+  )
 }
