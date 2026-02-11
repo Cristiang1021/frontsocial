@@ -132,6 +132,7 @@ export interface Profile {
   display_name?: string
   last_analyzed?: string
   created_at?: string
+  apify_token_key?: string | null  // facebook_1 | facebook_2 | instagram | tiktok (null = auto por plataforma)
 }
 
 export async function getProfiles(): Promise<Profile[]> {
@@ -148,6 +149,16 @@ export async function createProfile(platform: string, usernameOrUrl: string): Pr
 export async function deleteProfile(profileId: number): Promise<void> {
   await apiCall(`/profiles/${profileId}`, {
     method: 'DELETE',
+  })
+}
+
+export async function updateProfileApifyTokenKey(
+  profileId: number,
+  apifyTokenKey: string | null
+): Promise<void> {
+  await apiCall(`/profiles/${profileId}/apify-token-key`, {
+    method: 'PATCH',
+    body: JSON.stringify({ apify_token_key: apifyTokenKey }),
   })
 }
 
@@ -407,6 +418,10 @@ export async function getOverviewStats(
 
 export interface Config {
   apify_token: string
+  apify_token_facebook_1?: string
+  apify_token_facebook_2?: string
+  apify_token_instagram?: string
+  apify_token_tiktok?: string
   huggingface_model: string
   keywords_positive: string[]
   keywords_negative: string[]
@@ -434,10 +449,28 @@ export async function getConfig(): Promise<Config> {
 }
 
 export async function updateApifyToken(token: string): Promise<void> {
-  // El backend espera el token en el body con el formato { apify_token: token }
   await apiCall('/config/apify-token', {
     method: 'POST',
     body: JSON.stringify({ apify_token: token }),
+  })
+}
+
+export interface ApifyTokensByPlatform {
+  apify_token_facebook_1?: string | null
+  apify_token_facebook_2?: string | null
+  apify_token_instagram?: string | null
+  apify_token_tiktok?: string | null
+}
+
+export async function updateApifyTokensByPlatform(tokens: ApifyTokensByPlatform): Promise<void> {
+  await apiCall('/config/apify-tokens-by-platform', {
+    method: 'POST',
+    body: JSON.stringify({
+      apify_token_facebook_1: tokens.apify_token_facebook_1 ?? '',
+      apify_token_facebook_2: tokens.apify_token_facebook_2 ?? '',
+      apify_token_instagram: tokens.apify_token_instagram ?? '',
+      apify_token_tiktok: tokens.apify_token_tiktok ?? '',
+    }),
   })
 }
 

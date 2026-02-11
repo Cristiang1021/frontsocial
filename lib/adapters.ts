@@ -33,6 +33,7 @@ export function profileToSource(profile: Profile): Source {
     status,
     createdAt: profile.created_at || new Date().toISOString(),
     updatedAt: profile.last_analyzed || undefined,
+    apify_token_key: profile.apify_token_key ?? undefined,
     metrics: undefined, // Will be calculated from posts if needed
     history: profile.last_analyzed ? [
       {

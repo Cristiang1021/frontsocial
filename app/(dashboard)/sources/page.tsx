@@ -68,7 +68,7 @@ import {
   Users,
   ChevronRight,
 } from 'lucide-react'
-import { getProfiles, createProfile, deleteProfile as deleteProfileAPI, runAnalysis } from '@/lib/api'
+import { getProfiles, createProfile, deleteProfile as deleteProfileAPI, runAnalysis, updateProfileApifyTokenKey } from '@/lib/api'
 import { profileToSource } from '@/lib/adapters'
 import type { Source, Platform, LinkType, SourceStatus } from '@/types'
 
@@ -158,8 +158,10 @@ export default function SourcesPage() {
   // Scraping State
   const [isScraping, setIsScraping] = useState(false)
   const [scrapingProgress, setScrapingProgress] = useState<string>('')
+  const [scrapingError, setScrapingError] = useState<string | null>(null)
   const [scrapingResults, setScrapingResults] = useState<any>(null)
   const [selectedProfileIds, setSelectedProfileIds] = useState<Set<number>>(new Set())
+  const [savingApifyKeyId, setSavingApifyKeyId] = useState<number | null>(null)
 
   // Load profiles from API
   useEffect(() => {
@@ -296,6 +298,24 @@ export default function SourcesPage() {
     setDeleteModalOpen(true)
   }
 
+  // Asignar qué API key usa este perfil (Facebook 1, Facebook 2, Instagram, TikTok). "auto" = null en backend.
+  const handleApifyTokenKeyChange = async (profileId: number, value: string) => {
+    const key = (value === '' || value === 'auto') ? null : value
+    try {
+      setSavingApifyKeyId(profileId)
+      await updateProfileApifyTokenKey(profileId, key)
+      setSources((prev) =>
+        prev.map((s) =>
+          s.id === String(profileId) ? { ...s, apify_token_key: key ?? undefined } : s
+        )
+      )
+    } catch (error) {
+      console.error('Error updating profile API key:', error)
+    } finally {
+      setSavingApifyKeyId(null)
+    }
+  }
+
   // Handle profile selection
   const toggleProfileSelection = (profileId: number) => {
     const newSelection = new Set(selectedProfileIds)
@@ -347,6 +367,7 @@ export default function SourcesPage() {
     setIsScraping(true)
     setScrapingProgress('Iniciando scraping...')
     setScrapingResults(null)
+    setScrapingError(null)
 
     try {
       // Get selected profile IDs
@@ -387,11 +408,10 @@ export default function SourcesPage() {
       }, 3000)
     } catch (error: any) {
       console.error('Error during scraping:', error)
-      setScrapingProgress(`Error: ${error.message || 'Error desconocido'}`)
-      setTimeout(() => {
-        setScrapingProgress('')
-        setIsScraping(false)
-      }, 5000)
+      const msg = error.message || 'Error desconocido'
+      setScrapingError(msg)
+      setScrapingProgress('')
+      setIsScraping(false)
     }
   }
 
@@ -616,17 +636,36 @@ export default function SourcesPage() {
           </div>
         </div>
 
-        {/* Scraping Progress/Results */}
-        {(isScraping || scrapingProgress || scrapingResults) && (
+        {/* Scraping Progress/Results / Error (e.g. Apify quota) */}
+        {(isScraping || scrapingProgress || scrapingResults || scrapingError) && (
           <Card className="bg-card border-border">
             <CardContent className="p-4">
-              {isScraping && scrapingProgress && (
+              {scrapingError && (
+                <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 shrink-0 text-destructive" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-destructive">Error al analizar</p>
+                      <p className="text-sm text-foreground">{scrapingError}</p>
+                      {(scrapingError.includes('Configuración') || scrapingError.includes('cuota') || scrapingError.includes('token')) && (
+                        <p className="text-sm pt-2">
+                          <a href="/settings" className="text-primary hover:underline font-medium">
+                            Ir a Configuración → API & Tokens para poner otro token o revisar la cuota
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setScrapingError(null)}>Cerrar</Button>
+                </div>
+              )}
+              {!scrapingError && isScraping && scrapingProgress && (
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   <p className="text-sm font-medium">{scrapingProgress}</p>
                 </div>
               )}
-              {!isScraping && scrapingProgress && (
+              {!scrapingError && !isScraping && scrapingProgress && (
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 text-success" />
                   <p className="text-sm font-medium text-success">{scrapingProgress}</p>
@@ -746,6 +785,7 @@ export default function SourcesPage() {
                   <TableHead className="w-32">Plataforma</TableHead>
                   <TableHead className="w-24">Tipo</TableHead>
                   <TableHead>URL</TableHead>
+                  <TableHead className="w-36">API key</TableHead>
                   <TableHead className="w-32">Fecha de Agregado</TableHead>
                   <TableHead className="w-28">Estado</TableHead>
                   <TableHead className="w-20 text-right">Acciones</TableHead>
@@ -754,7 +794,7 @@ export default function SourcesPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center">
+                    <TableCell colSpan={8} className="h-32 text-center">
                       <div className="flex items-center justify-center">
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
@@ -762,7 +802,7 @@ export default function SourcesPage() {
                   </TableRow>
                 ) : filteredSources.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center">
+                    <TableCell colSpan={8} className="h-32 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <Link2 className="h-8 w-8 text-muted-foreground" />
                         <p className="text-muted-foreground">No se encontraron enlaces</p>
@@ -826,6 +866,26 @@ export default function SourcesPage() {
                               <p className="break-all">{source.url}</p>
                             </TooltipContent>
                           </Tooltip>
+                        </TableCell>
+                        <TableCell className="w-36">
+                          <Select
+                            value={source.apify_token_key || 'auto'}
+                            onValueChange={(value) => handleApifyTokenKeyChange(profileId, value)}
+                            disabled={savingApifyKeyId === profileId}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Auto" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="auto">
+                                <span className="text-muted-foreground">Auto</span>
+                              </SelectItem>
+                              <SelectItem value="facebook_1">Facebook 1</SelectItem>
+                              <SelectItem value="facebook_2">Facebook 2</SelectItem>
+                              <SelectItem value="instagram">Instagram</SelectItem>
+                              <SelectItem value="tiktok">TikTok</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {formatDate(source.createdAt)}

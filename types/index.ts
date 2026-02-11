@@ -3,6 +3,8 @@ export type Platform = 'facebook' | 'instagram' | 'tiktok'
 export type LinkType = 'profile' | 'post' | 'hashtag'
 export type SourceStatus = 'pending' | 'processing' | 'completed' | 'error'
 
+export type ApifyTokenKey = 'facebook_1' | 'facebook_2' | 'instagram' | 'tiktok' | ''
+
 export interface Source {
   id: string
   platform: Platform
@@ -12,6 +14,8 @@ export interface Source {
   status: SourceStatus
   createdAt: string
   updatedAt?: string
+  /** Qué API key de Apify usa este perfil (vacío = auto por plataforma/orden) */
+  apify_token_key?: string | null
   metrics?: {
     reach: number
     interactions: number

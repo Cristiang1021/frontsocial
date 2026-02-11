@@ -17,12 +17,15 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Link2, ExternalLink, Key, Brain, Hash, Settings as SettingsIcon, BarChart3 } from 'lucide-react'
 import Link from 'next/link'
-import { getConfig, updateApifyToken, getApifyUsage, updateDateFrom, updateDateTo, updateLastDays, updateLimitPosts, updateLimitComments } from '@/lib/api'
+import { getConfig, updateApifyToken, updateApifyTokensByPlatform, getApifyUsage, updateDateFrom, updateDateTo, updateLastDays, updateLimitPosts, updateLimitComments } from '@/lib/api'
 
 export default function SettingsPage() {
   const [config, setConfig] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [apifyToken, setApifyToken] = useState('')
+  const [apifyTokenFacebook1, setApifyTokenFacebook1] = useState('')
+  const [apifyTokenFacebook2, setApifyTokenFacebook2] = useState('')
+  const [apifyTokenInstagram, setApifyTokenInstagram] = useState('')
+  const [apifyTokenTiktok, setApifyTokenTiktok] = useState('')
   const [apifyUsage, setApifyUsage] = useState<any>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [lastDays, setLastDays] = useState<number>(7)
@@ -41,7 +44,11 @@ export default function SettingsPage() {
           getApifyUsage().catch(() => null)
         ])
         setConfig(configData)
-        setApifyToken(configData.apify_token || '')
+        // Los 4 tokens; si no hay facebook_1 pero sí token central (migración), usarlo como Facebook 1
+        setApifyTokenFacebook1(configData.apify_token_facebook_1 || configData.apify_token || '')
+        setApifyTokenFacebook2(configData.apify_token_facebook_2 || '')
+        setApifyTokenInstagram(configData.apify_token_instagram || '')
+        setApifyTokenTiktok(configData.apify_token_tiktok || '')
         setApifyUsage(usageData)
         // Set date filter values (use new names, fallback to old names for compatibility)
         const lastDaysValue = configData.last_days ?? configData.tiktok_last_days ?? 7
@@ -66,26 +73,37 @@ export default function SettingsPage() {
     loadConfig()
   }, [])
 
-  const handleSaveApifyToken = async () => {
+  const handleSaveApifyTokens = async () => {
     try {
-      // Validar que el token no esté vacío
-      if (!apifyToken || apifyToken.trim() === '') {
-        setMessage({ type: 'error', text: 'El token no puede estar vacío' })
+      const fb1 = apifyTokenFacebook1.trim()
+      if (!fb1) {
+        setMessage({ type: 'error', text: 'El token de Facebook (perfil 1) es obligatorio' })
         setTimeout(() => setMessage(null), 3000)
         return
       }
-
-      await updateApifyToken(apifyToken.trim())
-      setMessage({ type: 'success', text: 'Token de Apify actualizado correctamente' })
-      // Reload usage info
-      const usage = await getApifyUsage().catch(() => null)
-      setApifyUsage(usage)
+      await updateApifyTokensByPlatform({
+        apify_token_facebook_1: fb1 || '',
+        apify_token_facebook_2: apifyTokenFacebook2.trim() || '',
+        apify_token_instagram: apifyTokenInstagram.trim() || '',
+        apify_token_tiktok: apifyTokenTiktok.trim() || '',
+      })
+      // Mantener el token "central" del backend = Facebook perfil 1 (fallback)
+      await updateApifyToken(fb1)
+      setMessage({ type: 'success', text: 'Tokens de Apify guardados correctamente' })
+      const [configData, usageData] = await Promise.all([
+        getConfig(),
+        getApifyUsage().catch(() => null)
+      ])
+      setConfig(configData)
+      setApifyTokenFacebook1(configData.apify_token_facebook_1 || '')
+      setApifyTokenFacebook2(configData.apify_token_facebook_2 || '')
+      setApifyTokenInstagram(configData.apify_token_instagram || '')
+      setApifyTokenTiktok(configData.apify_token_tiktok || '')
+      setApifyUsage(usageData)
       setTimeout(() => setMessage(null), 3000)
     } catch (error: any) {
-      console.error('Error updating token:', error)
-      // Mostrar el mensaje de error del backend si está disponible
-      const errorMessage = error?.message || 'Error al actualizar el token'
-      setMessage({ type: 'error', text: errorMessage })
+      console.error('Error updating tokens:', error)
+      setMessage({ type: 'error', text: error?.message || 'Error al guardar los tokens' })
       setTimeout(() => setMessage(null), 5000)
     }
   }
@@ -226,41 +244,76 @@ export default function SettingsPage() {
 
         {/* API & Tokens Tab */}
         <TabsContent value="api" className="space-y-6">
-          {/* Apify Token */}
+          {/* 4 tokens de Apify (sin token central; Facebook perfil 1 es el principal) */}
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-base font-medium text-card-foreground flex items-center gap-2">
                 <Key className="h-5 w-5" />
-                Token de Apify
+                Tokens de Apify
               </CardTitle>
               <CardDescription>
-                Token de API de Apify para realizar el scraping de redes sociales
+                Una API key por tipo de perfil para repartir la cuota. Facebook (perfil 1) es obligatorio; el resto opcionales. En Fuentes puedes asignar a cada perfil qué token usa (columna «API key»): Facebook 1, Facebook 2, Instagram o TikTok. Si no asignas, se usa Auto: el primer perfil Facebook usa token 1, el segundo token 2; Instagram y TikTok usan su token.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="apify-token">Token de API</Label>
-                <Input
-                  id="apify-token"
-                  type="password"
-                  value={apifyToken}
-                  onChange={(e) => setApifyToken(e.target.value)}
-                  placeholder="Ingresa tu token de Apify"
-                  className="bg-input"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Obtén tu token en{' '}
-                  <a
-                    href="https://console.apify.com/account/integrations"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    Apify Console
-                  </a>
-                </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="apify-fb1">Token Apify — Facebook (perfil 1) *</Label>
+                  <Input
+                    id="apify-fb1"
+                    type="password"
+                    value={apifyTokenFacebook1}
+                    onChange={(e) => setApifyTokenFacebook1(e.target.value)}
+                    placeholder="Obligatorio"
+                    className="bg-input"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apify-fb2">Token Apify — Facebook (perfil 2)</Label>
+                  <Input
+                    id="apify-fb2"
+                    type="password"
+                    value={apifyTokenFacebook2}
+                    onChange={(e) => setApifyTokenFacebook2(e.target.value)}
+                    placeholder="Opcional"
+                    className="bg-input"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apify-ig">Token Apify — Instagram</Label>
+                  <Input
+                    id="apify-ig"
+                    type="password"
+                    value={apifyTokenInstagram}
+                    onChange={(e) => setApifyTokenInstagram(e.target.value)}
+                    placeholder="Opcional"
+                    className="bg-input"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apify-tt">Token Apify — TikTok</Label>
+                  <Input
+                    id="apify-tt"
+                    type="password"
+                    value={apifyTokenTiktok}
+                    onChange={(e) => setApifyTokenTiktok(e.target.value)}
+                    placeholder="Opcional"
+                    className="bg-input"
+                  />
+                </div>
               </div>
-              <Button onClick={handleSaveApifyToken}>Guardar Token</Button>
+              <p className="text-xs text-muted-foreground">
+                Obtén tus tokens en{' '}
+                <a
+                  href="https://console.apify.com/account/integrations"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Apify Console
+                </a>
+              </p>
+              <Button onClick={handleSaveApifyTokens}>Guardar tokens</Button>
             </CardContent>
           </Card>
 
@@ -460,7 +513,7 @@ export default function SettingsPage() {
                 Filtros de Fecha
               </CardTitle>
               <CardDescription>
-                Configura los filtros de fecha para el análisis
+                Define desde qué fecha hasta qué fecha se obtienen y analizan las publicaciones al ejecutar el análisis (todas las plataformas).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -536,7 +589,7 @@ export default function SettingsPage() {
                           onChange={(e) => setDateFrom(e.target.value)}
                         />
                         <p className="text-xs text-muted-foreground">
-                          Filtrar publicaciones desde esta fecha (dejar vacío = sin límite inferior)
+                          Filtrar publicaciones desde esta fecha (dejar vacío = sin límite inferior). Si usas fechas, &quot;Últimos N días&quot; no se aplica.
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -548,7 +601,7 @@ export default function SettingsPage() {
                           onChange={(e) => setDateTo(e.target.value)}
                         />
                         <p className="text-xs text-muted-foreground">
-                          Filtrar publicaciones hasta esta fecha (dejar vacío = sin límite superior)
+                          Filtrar publicaciones hasta esta fecha (dejar vacío = sin límite superior).
                         </p>
                       </div>
                       <Button 
@@ -571,8 +624,9 @@ export default function SettingsPage() {
                       <strong className="text-foreground">ℹ️ Información:</strong>
                       <br />
                       Estos filtros se aplican a <strong>TODAS las plataformas</strong> (Facebook, Instagram, TikTok).
+                      Al ejecutar el análisis, solo se obtienen y analizan publicaciones en este rango de fechas.
                       <br />
-                      Úsalos para optimizar recursos y evitar análisis repetidos de contenido antiguo.
+                      <strong className="text-foreground">Si se acaba la cuota de Apify:</strong> verás un aviso al analizar. Puedes pausar, configurar otro token en <strong>API & Tokens</strong> (arriba), y volver a ejecutar el análisis.
                     </p>
                   </div>
                 </>
