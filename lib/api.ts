@@ -3,27 +3,16 @@
  * Replaces mock data with real API calls
  */
 
-// Base URL de la API: prioridad env → localhost → producción (Vercel)
+// URL de ngrok: en producción y local se usa solo esta (cámbiala si tu ngrok cambia)
+const NGROK_URL = 'https://www.backsocual.ngrok.app'
+
 const getBaseUrl = (): string => {
-  // 1) Variable de entorno (Vercel o .env.local): con esto basta para conectar el front al backend
   const envUrl = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
   if (envUrl && typeof envUrl === 'string') {
     const url = envUrl.trim()
     return url.endsWith('/api') ? url : `${url.replace(/\/$/, '')}/api`
   }
-
-  // 2) En el navegador: localhost → backend local; si no → backend en Vercel
-  const PRODUCTION_URL = 'https://backsocial-zeta.vercel.app/api'
-  const LOCAL_URL = 'http://localhost:8000/api'
-
-  if (typeof window !== 'undefined') {
-    const isLocalhost = window.location.hostname === 'localhost' ||
-                        window.location.hostname === '127.0.0.1' ||
-                        window.location.hostname === '0.0.0.0'
-    return isLocalhost ? LOCAL_URL : PRODUCTION_URL
-  }
-
-  return PRODUCTION_URL
+  return NGROK_URL.endsWith('/api') ? NGROK_URL : `${NGROK_URL.replace(/\/$/, '')}/api`
 }
 
 const API_BASE_URL = getBaseUrl()
