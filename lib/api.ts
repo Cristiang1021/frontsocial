@@ -3,16 +3,32 @@
  * Replaces mock data with real API calls
  */
 
-// URL de ngrok: en producción y local se usa solo esta (cámbiala si tu ngrok cambia)
-const NGROK_URL = 'https://www.backsocual.ngrok.app'
-
+// Get base URL - use ngrok URL for testing (even in localhost)
 const getBaseUrl = (): string => {
-  const envUrl = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
-  if (envUrl && typeof envUrl === 'string') {
-    const url = envUrl.trim()
-    return url.endsWith('/api') ? url : `${url.replace(/\/$/, '')}/api`
+  // ngrok URL (backend local con ngrok)
+  const NGROK_URL = 'https://www.backsocual.ngrok.app/api'
+  
+  // Production backend URL (Render)
+  const PRODUCTION_URL = 'https://backsocial-83zt.onrender.com/api'
+  
+  // Local development URL
+  const LOCAL_URL = 'http://localhost:8000/api'
+  
+  // Usar ngrok siempre que esté configurado (incluso en localhost para probar)
+  if (NGROK_URL) {
+    return NGROK_URL
   }
-  return NGROK_URL.endsWith('/api') ? NGROK_URL : `${NGROK_URL.replace(/\/$/, '')}/api`
+  
+  // Si no hay ngrok, usar localhost en desarrollo
+  if (typeof window !== 'undefined') {
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname === '0.0.0.0'
+    return isLocalhost ? LOCAL_URL : PRODUCTION_URL
+  }
+  
+  // Server-side: use production by default
+  return PRODUCTION_URL
 }
 
 const API_BASE_URL = getBaseUrl()
@@ -344,6 +360,33 @@ export async function runAnalysis(request: AnalysisRequest): Promise<AnalysisRes
     body: JSON.stringify(request),
   })
   return (response as any).results || response
+}
+
+// ==================== FACEBOOK POR PERÍODO ====================
+
+export interface FacebookPeriodRequest {
+  profile_id: number
+  year: number
+  month: number
+  apify_token_key?: string | null
+  include_comments?: boolean
+}
+
+export interface FacebookPeriodResult {
+  success: boolean
+  posts_scraped?: number
+  posts_processed?: number
+  comments_scraped?: number
+  errors?: string[]
+}
+
+export async function runFacebookPeriodAnalysis(
+  request: FacebookPeriodRequest
+): Promise<FacebookPeriodResult> {
+  return apiCall<FacebookPeriodResult>('/analysis/facebook-period', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
 }
 
 // ==================== STATS ====================

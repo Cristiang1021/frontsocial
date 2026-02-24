@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   Link2,
   Download,
+  CalendarRange,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
@@ -23,6 +24,7 @@ const navigation = [
   { name: 'Resumen', href: '/overview', icon: LayoutDashboard },
   { name: 'Fuentes', href: '/sources', icon: Link2 },
   { name: 'Facebook', href: '/facebook', icon: Facebook },
+  { name: 'Facebook por período', href: '/facebook-periodo', icon: CalendarRange },
   { name: 'Instagram', href: '/instagram', icon: Instagram },
   { name: 'TikTok', href: '/tiktok', icon: Music2 },
   { name: 'Publicaciones', href: '/posts', icon: FileText },
