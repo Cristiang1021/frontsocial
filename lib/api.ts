@@ -316,6 +316,11 @@ export async function getComments(filters: CommentsFilters = {}): Promise<Commen
 
 // ==================== ANALYSIS ====================
 
+/** Prueba de conexión a la ruta de análisis (CORS + backend). GET /api/analysis/ping */
+export async function checkAnalysisConnection(): Promise<{ ok: boolean; message: string; timestamp: string }> {
+  return apiCall<{ ok: boolean; message: string; timestamp: string }>('/analysis/ping')
+}
+
 export interface AnalysisRequest {
   profile_ids?: number[]
   force?: boolean
