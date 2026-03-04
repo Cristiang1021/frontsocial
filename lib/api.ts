@@ -1,37 +1,14 @@
 /**
  * API client for Social Media Analytics Dashboard
- * Replaces mock data with real API calls
+ * Todo hardcodeado, sin variables de entorno.
  */
 
-// Get base URL - use ngrok URL for testing (even in localhost)
-const getBaseUrl = (): string => {
-  // ngrok URL (backend local con ngrok)
-  const NGROK_URL = 'https://www.backsocual.ngrok.app/api'
-  
-  // Production backend URL (Render)
-  const PRODUCTION_URL = 'https://backsocial-83zt.onrender.com/api'
-  
-  // Local development URL
-  const LOCAL_URL = 'http://localhost:8000/api'
-  
-  // Usar ngrok siempre que esté configurado (incluso en localhost para probar)
-  if (NGROK_URL) {
-    return NGROK_URL
-  }
-  
-  // Si no hay ngrok, usar localhost en desarrollo
-  if (typeof window !== 'undefined') {
-    const isLocalhost = window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1' ||
-                        window.location.hostname === '0.0.0.0'
-    return isLocalhost ? LOCAL_URL : PRODUCTION_URL
-  }
-  
-  // Server-side: use production by default
-  return PRODUCTION_URL
-}
+// URL base del backend (hardcodeada)
+const API_BASE_URL = 'https://www.backsocual.ngrok.app/api'
 
-const API_BASE_URL = getBaseUrl()
+function getBaseUrl(): string {
+  return API_BASE_URL
+}
 
 interface ApiResponse<T> {
   data?: T
